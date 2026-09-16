@@ -1,0 +1,92 @@
+/**:
+    ros__parameters:
+        # =====================================================================
+        # GT system: LOCALIZATION mode config (reference map + fixed frame).
+        # All evaluation runs (manual / VLN / baseline) use this file so that
+        # every trajectory is expressed in ONE shared map frame.
+        # Before use:
+        #   1. build the reference map once with mid360.yaml (SLAM mode),
+        #      maps are saved under workspace pcd_map/ (see README),
+        #   2. pass map_path:=/path/to/scene.pcd explicitly at launch,
+        #   3. start every run from the SAME floor mark with the SAME robot
+        #      heading as during mapping -> initial_pose stays [0,0,0,0].
+        #      (If the heading differs, measure yaw and set it here.)
+        # =====================================================================
+        feature_extract_enable: false
+        point_filter_num: 3
+        max_iteration: 3
+        filter_size_surf: 0.5
+        filter_size_map: 0.5
+        # The reference map is pre-loaded into the kd-tree; the local-map cube
+        # is not used in localization mode (no adds / no FOV trimming).
+        cube_side_length: 100.0
+        runtime_pos_log_enable: false
+        map_file_path: ""
+
+        common:
+            lid_topic:  "/livox/lidar"
+            imu_topic:  "/livox/imu"
+            time_sync_en: false
+            time_offset_lidar_to_imu: 0.0
+
+        # ---- GT system: reference-map localization ----
+        localization:
+            mode: true
+            # 不设默认场景；定位启动必须显式传入 map_path:=...。
+            map_path: ""
+            map_voxel_size: 0.1
+            initial_pose: [0.0, 0.0, 0.0, 0.0]  # x, y, z, yaw(rad) in map frame
+
+        # ---- GT system: trajectory recording (same defaults as mid360.yaml) ----
+        record:
+            sample_every_n: 1
+            republish_saved: true
+            control_source: ""
+            instruction_id: ""
+            note: ""
+
+        preprocess:
+            lidar_type: 1
+            scan_line:  4
+            blind: 0.5
+            timestamp_unit: 3
+            scan_rate: 10
+            # MUST match the values used when building the reference map.
+            operator_filter_en: true
+            operator_filter_rear_angle: 50.0
+            operator_filter_range_min: 0.3
+            operator_filter_range_max: 3.0
+
+        mapping:
+            acc_cov: 0.1
+            gyr_cov: 0.1
+            b_acc_cov: 0.0001
+            b_gyr_cov: 0.0001
+            fov_degree:    360.0
+            det_range:     100.0
+            # Rigidly mounted sensor: disable online extrinsic estimation so every
+            # localization run starts from the exact same calibration.
+            extrinsic_est_en:  false
+            extrinsic_T: [ -0.011, -0.02329, 0.04412 ]
+            extrinsic_R: [ 1., 0., 0.,
+                            0., 1., 0.,
+                            0., 0., 1.]
+
+        publish:
+            path_en: true
+            effect_map_en: false
+            # map_en publishes an ACCUMULATING cloud every second (O(t^2) CPU/memory
+            # growth -> a real drift/slowdown factor on Jetson long runs). Keep false:
+            # the fixed reference map is available on the latched /reference_map topic.
+            map_en: false
+            # World-frame registered scan (downsampled, ~2-4k pts @10 Hz): used for
+            # the rviz scan-vs-reference_map fit check.
+            scan_publish_en:  true
+            dense_publish_en: false
+            scan_bodyframe_pub_en: false
+
+        pcd_save:
+            # Localization mode never saves the map (enforced in code as well);
+            # keep false so the reference PCD cannot be overwritten by accident.
+            pcd_save_en: false
+            interval: -1

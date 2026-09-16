@@ -1,0 +1,5 @@
+# Humble package.xml is a permanent source file in this unified workspace.
+# Never ignore it as the old ROS1/ROS2 build.sh switch did.
+.vscode/
+/build/
+__pycache__/

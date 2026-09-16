@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain Id="any">
+    <General>
+      <!-- Replace autodetermine with name="ACTUAL_PC_ROS_LAN_NIC" if needed. -->
+      <Interfaces><NetworkInterface autodetermine="true"/></Interfaces>
+      <AllowMulticast>true</AllowMulticast>
+    </General>
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>120</MaxAutoParticipantIndex>
+      <!-- Optional, EDIT to actual Jetson ROS LAN IP (not the radar IP).
+      <Peers><Peer Address="192.168.123.18"/></Peers>
+      -->
+    </Discovery>
+  </Domain>
+</CycloneDDS>

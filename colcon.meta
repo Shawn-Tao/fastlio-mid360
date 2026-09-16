@@ -1,0 +1,6 @@
+{
+  "names": {
+    "livox_ros_driver2": {"cmake-args": ["-DBUILD_TESTING=ON"]},
+    "fast_lio": {"cmake-args": ["-DBUILD_TESTING=ON"]}
+  }
+}

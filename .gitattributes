@@ -1,0 +1,48 @@
+# No Git LFS dependency by default; normalize source only, never SDK bytes.
+* text=auto
+.gitignore text eol=lf
+.gitattributes text eol=lf
+.dockerignore text eol=lf
+Dockerfile* text eol=lf
+CMakeLists.txt text eol=lf
+*.cmake text eol=lf
+*.sh text eol=lf
+*.bash text eol=lf
+*.zsh text eol=lf
+*.py text eol=lf
+*.c text eol=lf
+*.cpp text eol=lf
+*.h text eol=lf
+*.hpp text eol=lf
+*.msg text eol=lf
+*.srv text eol=lf
+*.action text eol=lf
+*.xml text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.rst text eol=lf
+*.txt text eol=lf
+*.csv text eol=lf
+
+# Binary assets: disable text conversion, text diff and text merge.
+*.so binary
+*.so.* binary
+*.a binary
+*.pdf binary
+*.pcd binary
+*.ply binary
+*.las binary
+*.laz binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.zip binary
+*.bag binary
+*.mcap binary
+*.db3 binary
+*.npy binary
+*.npz binary

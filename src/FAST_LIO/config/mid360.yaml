@@ -1,0 +1,91 @@
+# =====================================================================
+# GT system: SLAM / mapping config. Real-time on Jetson, OR offline
+# replay on PC (recommended for the final reference map):
+#   ros2 launch fast_lio localization_replay.launch.py config_file:=mid360.yaml
+#
+# RULE: the "physics group" (preprocess.* incl. operator_filter_*,
+# point_filter_num, filter_size_surf, mapping.extrinsic_*, acc/gyr cov)
+# must stay byte-identical to mid360_localization.yaml. Changing any of
+# them invalidates existing reference maps -> rebuild the map.
+# =====================================================================
+/**:
+    ros__parameters:
+        feature_extract_enable: false
+        point_filter_num: 3
+        # max_iteration: 2
+        max_iteration: 3
+        filter_size_surf: 0.5
+        filter_size_map: 0.5
+        # 限制局部地图大小
+        # cube_side_length: 1000.0
+        cube_side_length: 100.0
+        runtime_pos_log_enable: false
+        # 由节点自动生成 pcd_map/时间戳_场景名.pcd；手动与 Ctrl+C 存图使用同一路径。
+        # map_dir 不在 YAML 固定：节点默认使用当前工作区根目录的 pcd_map/。
+        map_file_path: ""
+        map_name: "map"
+
+        common:
+            lid_topic:  "/livox/lidar"
+            imu_topic:  "/livox/imu"
+            time_sync_en: false         # ONLY turn on when external time synchronization is really not possible
+            time_offset_lidar_to_imu: 0.0 # Time offset between lidar and IMU calibrated by other algorithms, e.g. LI-Init (can be found in README).
+                                        # This param will take effect no matter what time_sync_en is. So if the time offset is not known exactly, please set as 0.0
+
+        # ---- GT system: reference-map localization mode (keep false for mapping runs) ----
+        localization:
+            mode: false
+            map_path: ""                  # reference PCD, e.g. /home/unitree/gt_maps/lab.pcd (localization mode only)
+            map_voxel_size: 0.1           # voxel filter applied to the loaded reference map
+            initial_pose: [0.0, 0.0, 0.0, 0.0]  # x, y, z, yaw(rad) of the start pose in the map frame
+
+        # ---- GT system: trajectory recording (services start_path_record / stop_path_record) ----
+        record:
+            sample_every_n: 1             # record pose every N LiDAR frames (1 = 10 Hz on MID360)
+            republish_saved: true         # republish finished recordings on /path_record_N each second (RViz)
+            control_source: ""            # manual | vln | baseline  (set per run, e.g. by scripts/gt_record.py)
+            instruction_id: ""            # episode / instruction label (set per run)
+            note: ""                      # free-form note (set per run)
+
+        preprocess:
+            lidar_type: 1                # 1 for Livox serials LiDAR, 2 for Velodyne LiDAR, 3 for ouster LiDAR, 4 for any other pointcloud input
+            scan_line:  4
+            blind: 0.5
+            timestamp_unit: 3
+            scan_rate: 10
+            # Operator filter: drop points inside the rear sector +-50 deg and 0.3~3 m
+            # (the human operator walking behind the robot). MUST be identical for
+            # mapping and localization runs. Applies to lidar_type 1 (Livox CustomMsg).
+            operator_filter_en: true
+            operator_filter_rear_angle: 50.0
+            operator_filter_range_min: 0.3
+            operator_filter_range_max: 3.0
+
+        mapping:
+            acc_cov: 0.1
+            gyr_cov: 0.1
+            b_acc_cov: 0.0001
+            b_gyr_cov: 0.0001
+            fov_degree:    360.0
+            det_range:     100.0
+            # Rigid mount + factory MID360 IMU extrinsic: keep estimation OFF so that
+            # mapping and localization runs use byte-identical calibration (GT
+            # consistency). Must match mid360_localization.yaml.
+            extrinsic_est_en:  false
+            extrinsic_T: [ -0.011, -0.02329, 0.04412 ]
+            extrinsic_R: [ 1., 0., 0.,
+                            0., 1., 0.,
+                            0., 0., 1.]
+
+        publish:
+            path_en: true                # true: publish Path
+            effect_map_en: false         # true: publish Effects
+            map_en: true                 # true: publish Map cloud
+            scan_publish_en:  false       # false: close all the point cloud output
+            dense_publish_en: false      # false: low down the points number in a global-frame point clouds scan.
+            scan_bodyframe_pub_en: true  # true: output the point cloud scans in IMU-body-frame
+
+        pcd_save:
+            pcd_save_en: true
+            interval: -1                 # how many LiDAR frames saved in each pcd file; 
+                                        # -1 : all frames will be saved in ONE pcd file, may lead to memory crash when having too much frames.

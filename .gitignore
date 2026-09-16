@@ -1,0 +1,79 @@
+# ROS / colcon output: never reuse these across machines or architectures.
+/build/
+/install/
+/log/
+/bags/
+/Record_Path/
+/.colcon/
+/src/*/build/
+/src/*/install/
+/src/*/log/
+
+# Historical copies are not part of the standalone source repository.
+/maps/
+/reference/
+# ikd-Tree is vendored as ordinary source, not a nested Git submodule.
+/src/FAST_LIO/.gitmodules
+
+# Machine-specific configuration. Keep factory JSON/YAML and examples tracked.
+/config/local/
+*.local.json
+*.local.yaml
+*.local.yml
+*.local.xml
+*.local.sh
+*.local.bash
+*.local.zsh
+.env
+.env.*
+!.env.example
+!.env.*.example
+/secrets/
+
+# Scene data: keep the small test map, README, COLCON_IGNORE and map metadata.
+/pcd_map/**/*.pcd
+/pcd_map/**/*.ply
+/pcd_map/**/*.las
+/pcd_map/**/*.laz
+/pcd_map/**/*.tmp*
+!/pcd_map/test.pcd
+
+# Legacy FAST-LIO runtime files; retain Log's Python/Matlab tools and docs.
+/src/FAST_LIO/PCD/*
+!/src/FAST_LIO/PCD/README.md
+/src/FAST_LIO/Log/*.txt
+/src/FAST_LIO/Log/*.csv
+/src/FAST_LIO/Log/*.png
+/src/FAST_LIO/Log/*.pdf
+
+# Python / test caches.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local editors, OS metadata and rejected/backup edits.
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*~
+*.swp
+*.swo
+*.orig
+*.rej
+/.agents/
+/.codex/
+
+# Deployment artifacts. SHA256 manifests for SDKs/maps remain trackable.
+*.zip
+*.zip.sha256
+
+# IMPORTANT: no global *.so / *.a / *.pdf / *.json / *.yaml ignore rules.
+# Both bundled SDK libraries, ROS package.xml files, source configs, licenses,
+# third-party sources and test fixtures are required for a reproducible clone.

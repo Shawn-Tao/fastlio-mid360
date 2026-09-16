@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+"""Local Docker CLI stub for tooling tests: NEVER accesses a daemon."""
+import json
+import os
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+root = Path(os.environ['FAKE_DOCKER_WORKSPACE'])
+if args[:2] == ['ps', '-q']:
+    print(os.environ.get('FAKE_DOCKER_IDS', 'test-container'))
+elif args[0] == 'inspect':
+    if '--format' not in args:
+        print('[]')
+    else:
+        template = args[args.index('--format') + 1]
+        if '.HostConfig.NetworkMode' in template:
+            print('host')
+        elif '.State.Running' in template:
+            print('true')
+        elif 'eq .Destination' in template:
+            print(os.environ.get('FAKE_DOCKER_EXISTING_SOURCE', str(root)))
+        else:
+            kind = os.environ.get('FAKE_DOCKER_MOUNT', 'parent')
+            if kind == 'none':
+                print('/unrelated\t/unrelated')
+            else:
+                print(f'{root.parent}\t/portable space')
+                if kind == 'nested':
+                    print(f'{root}\t/nested space/{root.name}')
+elif args[0] in {'exec', 'build', 'run', 'start'}:
+    print(json.dumps(args, ensure_ascii=False))
+else:
+    sys.exit(f'Unsupported stub invocation: {args}')

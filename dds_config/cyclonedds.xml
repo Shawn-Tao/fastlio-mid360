@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CycloneDDS xmlns="https://cdds.io/config">
+  <!-- ROS_DOMAIN_ID selects the domain; this file must not hard-code one. -->
+  <Domain Id="any">
+    <General>
+      <!-- Auto-select by default; multi-NIC deployments should explicitly
+           set the actual PC/Jetson ROS LAN interface, not the LiDAR's IP.
+           Example, replace this line: <NetworkInterface name="eth0"/> -->
+      <Interfaces><NetworkInterface autodetermine="true"/></Interfaces>
+      <AllowMulticast>true</AllowMulticast>
+    </General>
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>120</MaxAutoParticipantIndex>
+      <!-- Optional: add actual ROS-computer peer IPs on BOTH machines.
+      <Peers><Peer Address="192.168.123.188"/></Peers>
+      -->
+    </Discovery>
+  </Domain>
+</CycloneDDS>
