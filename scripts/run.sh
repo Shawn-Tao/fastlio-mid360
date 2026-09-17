@@ -9,6 +9,8 @@ usage() {
     '  --no-rviz    Do not start RViz2 (the default).' \
     '  -h, --help   Show this help without starting ROS or Docker.' \
     'The existing rviz:=true / rviz:=false launch arguments remain supported.' \
+    'Mapping --rviz enables bounded map display; publish_map:=true supports remote RViz.' \
+    'Verified localization: map_metadata:=strict; CSV defaults to records/, override record_dir:=...' \
     'Compile separately: bash scripts/build.sh (no PCD required).' \
     'Mapping:      bash scripts/run.sh mapping map_name:=lab_a' \
     'Localization: bash scripts/run.sh localization map_path:=pcd_map/scene.pcd search_radius:=3.0 --rviz' \

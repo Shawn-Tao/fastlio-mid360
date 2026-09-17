@@ -111,6 +111,7 @@ def check_mode(node, mode, lidar_config=None):
                 topics = dict(node.get_topic_names_and_types())
                 if ('/map_save' in services and '/start_path_record' in services
                         and '/stop_path_record' in services and '/Odometry' in topics
+                        and '/tracking/status' in topics and '/map_save/status' in topics
                         and (mode != 'localization' or (reference and statuses))
                         and (not lidar_config or 'Init lds lidar success!' in log_path.read_text())):
                     break

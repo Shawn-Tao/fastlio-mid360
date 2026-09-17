@@ -28,7 +28,7 @@ RViz2 默认关闭；建图/定位/重放脚本追加 `--rviz` 可开启，`--no
 建图地图位于 `pcd_map/`，手动 `/map_save` 和 Ctrl+C 更新同次会话文件。
 定位必须显式传入 `map_path`，不自动选示例或最新地图；地图只读，拒绝 `/map_save`。
 默认先在地图原点 3 m 内搜索初始位置和完整朝向，初始化必须保持静止。
-等 `/localization/status` ready 后再开始录制；未定位的录制请求被拒绝。
+等 `/localization/status` ready 且 `/tracking/status` tracking 后再录制；未定位或跟踪不健康的请求被拒绝。
 初始化结果可读 `localization.matched_pose`（x,y,z,yaw(rad)）；见
 [启动重定位](STARTUP_RELOCALIZATION.md)。手动模式 `relocalize:=false` 才使用 YAML
 `localization.initial_pose` 与 `/initialpose` 直接播种。
@@ -56,10 +56,12 @@ ros2 run fast_lio gt_record.py start --source baseline --instr lab_01
 ros2 run fast_lio gt_record.py stop
 ```
 
-每段任务一个 start / stop；CSV 在 stop 时才写盘，中途断电会丢当前段。
-输出 `~/Record_Path/path_record_<序号>_<source>_<instr>_<时间戳>.csv`，
-文件名会处理标签中的非字母数字字符。Docker 中位于容器用户家目录，部署 ZIP
-不包含家目录数据；删除容器前先用 `docker cp` 取回。
+每段任务一个 start / stop；CSV 从开始录制就写到工作区 `records/`，默认每 1 s
+同步，stop/正常退出收尾；强制退出仍可能丢最近缓冲或留下损坏尾行。文件名含
+序号、标签、时间戳及独占随机后缀，不覆盖旧段。可传 record_dir:=/其他目录。
+Docker 工作区挂载持久化 records/；Git、部署 ZIP 和镜像上下文排除轨迹数据。
+CSV 保留原 9 列并追加匹配点数/比例/残差，显示只保留最近 2000 点，不截断 CSV。
+坏帧/丢定位不录制可信样本，因此时间轴可能有缺口；不得跨丢定位区间插值当真值。
 
 起点姿态表可以放在当前工作目录 `start_poses.csv`，或用 `--poses-file`：
 
@@ -113,7 +115,7 @@ GT CSV 的位姿时间戳来自 LiDAR 帧结束时间，与 `/Odometry` 一致�
 CSV 带 `#` 元数据行，随后列为：
 
 ```csv
-x,y,z,qx,qy,qz,qw,stamp_sec,stamp_nanosec
+x,y,z,qx,qy,qz,qw,stamp_sec,stamp_nanosec,effective_points,match_ratio,mean_residual
 ```
 
 `camera_init` 为建图/参考地图坐标系，位姿为 IMU 状态，不是机器人底盘中心或外部真值。

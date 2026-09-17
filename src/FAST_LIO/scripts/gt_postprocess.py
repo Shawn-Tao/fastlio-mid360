@@ -4,7 +4,7 @@
 
 Runs on a PC or on the robot; needs only numpy (matplotlib optional, for --plot).
 
-Input: CSV files written by FAST-LIO `stop_path_record` (recording v2):
+Input: FAST-LIO legacy v2 and streaming v3 CSV files (including interrupted files):
     # ... metadata lines starting with '#'
     x,y,z,qx,qy,qz,qw,stamp_sec,stamp_nanosec
 
@@ -31,6 +31,7 @@ python3 gt_postprocess.py interp --traj human_lab01.csv --times cmds_lab01.csv \
 
 import argparse
 import csv
+from trajectory_csv import load_csv
 import json
 import math
 import sys
@@ -41,38 +42,16 @@ import numpy as np
 # ---------------------------------------------------------------- trajectory IO
 
 def load_traj(path):
-    """Load a recording CSV -> dict of numpy arrays (plus metadata lines)."""
-    meta = {}
-    header, rows = None, []
-    with open(path, "r") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            if line.startswith("#"):
-                if ":" in line:
-                    k, v = line[1:].split(":", 1)
-                    meta[k.strip()] = v.strip()
-                continue
-            if header is None:
-                header = [h.strip() for h in line.split(",")]
-                continue
-            rows.append([float(v) for v in line.split(",")])
-    required = ["x", "y", "z", "qx", "qy", "qz", "qw", "stamp_sec", "stamp_nanosec"]
-    missing = [n for n in required if n not in header]
-    if missing:
-        raise ValueError("%s: missing columns %s (header: %s)" % (path, missing, header))
-    if not rows:
-        raise ValueError("%s: no pose rows found" % path)
+    """Load legacy/v3 CSV; preserve interruption metadata and quality columns."""
+    meta, header, rows = load_csv(path)
     data = np.asarray(rows, dtype=np.float64)
     col = {name: data[:, i] for i, name in enumerate(header)}
-    t = col["stamp_sec"] + col["stamp_nanosec"] * 1e-9
     return {
-        "path": path,
-        "meta": meta,
+        "path": path, "meta": meta,
         "xyz": np.stack([col["x"], col["y"], col["z"]], axis=1),
         "quat": np.stack([col["qw"], col["qx"], col["qy"], col["qz"]], axis=1),
-        "t": t,
+        "t": col["stamp_sec"] + col["stamp_nanosec"] * 1e-9,
+        "quality": {name: col[name] for name in ('effective_points', 'match_ratio', 'mean_residual') if name in col},
     }
 
 

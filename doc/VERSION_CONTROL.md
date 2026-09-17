@@ -11,6 +11,7 @@ driver 的旧 `package.xml` 忽略规则已去除，两份包清单都必须提�
 - 跟踪两套 SDK 的头文件与 `.so` / `.a`，以及 `pcd_map/test.pcd`。
 - 可以跟踪地图清单 YAML / JSON / SHA256，记录地图文件、代码 commit、标定和初始位姿。
 - 不跟踪编译产物、运行日志、录包、GT CSV、场景点云、Python / IDE 缓存、ZIP。
+  轨迹默认 `records/` 被整体忽略；地图 `.pcd.json` 可跟踪，须和对应 PCD 配对保管。
 - 不跟踪 `config/local/`、`*.local.json/yaml/yml/xml/sh/bash/zsh`、私有 `.env` 和 secrets。
 - `.env.example` 与 `.env.*.example` 可以跟踪；不要把实际口令写入模板。
 - `maps/` 与 `reference/` 是旧历史资料，不进入新仓库或部署 ZIP。

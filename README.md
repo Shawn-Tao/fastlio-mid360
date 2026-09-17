@@ -76,6 +76,7 @@ fastlio-mid360_space/
 ├── livox-sdk-arm/           # ARM64 / aarch64 预编译 SDK：include/ + lib/
 ├── pcd_map/                 # 与 src/ 同级的统一地图目录
 │   └── test.pcd             # 显式选择的自检示例，不作为默认定位地图
+├── records/                 # 按需生成的持久化 CSV，不进入 Git/部署 ZIP
 ├── scripts/                # 编译、运行、自检、Docker 调度及网络检查
 ├── config/                 # 本地配置初始化说明；local/ 不进入 Git 或部署包
 ├── dds_config/             # 可选 Cyclone DDS；不固定网卡、peer 或 domain
@@ -93,7 +94,7 @@ fastlio-mid360_space/
 
 新副本还修正了 FAST-LIO 的退出处理：不再覆盖 rclcpp 自带的异步 SIGINT handler，避免在原 POSIX signal handler 内调用 shutdown() 导致 Ctrl+C 退出卡住。原有建图/持续跟踪主体保留；定位新增原点附近的启动重定位，详见 [启动重定位说明](doc/STARTUP_RELOCALIZATION.md)。
 
-地图管理已统一：有效建图帧只累积一次，不再依赖地图发布定时器来拼接存图数据；`/map_save` 与正常 Ctrl+C 存储同一份地图。旧 `maps/` 内的示例保留用于兼容，不再是建图输出目录。
+地图管理已统一：可信建图帧进入独立全局体素缓存，不依赖地图发布，也不从裁剪后的实时树直接导出完整地图；`/map_save`、周期检查点与正常 Ctrl+C 保存同次会话。旧 `maps/` 示例不是输出目录。长期运行和数据可信度说明见 [运行安全与验收](doc/RUNTIME_SAFETY.md)。
 
 ## 3. 原 driver 编译流程与问题
 
@@ -206,7 +207,9 @@ ros2 topic info /livox/lidar --verbose
 ros2 topic hz /livox/lidar
 ros2 topic hz /livox/imu
 ros2 topic hz /Odometry
+ros2 topic echo /tracking/status
 ros2 service call /map_save std_srvs/srv/Trigger '{}'
+ros2 topic echo /map_save/status
 ```
 
 地图统一保存在与 `src/` 同级的 **`pcd_map/`** 下，默认命名为：
@@ -218,11 +221,15 @@ pcd_map/20260916_160000_123456_lab_a.pcd
 
 `map_name` 默认 `map`，可以使用中文、字母、数字、下划线和连字符，不含 `.pcd` 后缀或路径分隔符。时间戳在节点启动时生成，使用所在容器/系统的时区。同次运行中，`/map_save` 会更新当前会话文件，正常 Ctrl+C 则把最终地图保存到同一文件；不同运行默认使用不同时间戳，不覆盖之前的场景地图。启动日志会打印完整的 `Mapping session output` 路径。
 
-`map_dir:=/其他目录` 可以改输出目录；保留高级兼容项 `map_output:=/完整路径/new_map.pcd`，显式指定完整输出路径时不再生成时间戳，且启动会拒绝已经存在的目标文件。保存先写同目录临时文件，再原子替换当前会话地图；空地图、写入失败均返回失败，不会报告成功。
+`map_dir:=/其他目录` 可以改输出目录；`map_output:=/完整路径/new_map.pcd` 指定新会话路径，拒绝启动时已存在的目标。PCD 和配套 `.pcd.json` 各自临时写入、同步和原子替换。`/map_save` 成功仅表示快照已入队，必须查看 `/map_save/status` 的 saved/failed；同时只允许一个后台保存任务。默认每 60 s 检查点，正常退出保存最新快照；空地图不生成文件。
 
 无有效建图数据时，`/map_save` 返回 `No mapping points available`，Ctrl+C 不创建空 PCD；不应预期出现有效地图或里程计数据。无论 `publish.map_en` 或扫描显示开关是否开启，只要 `pcd_save.pcd_save_en=true` 就会累积建图结果。
 
-`record_bag` 默认 false，主动开启后保存到工作区 `bags/<mode>_<时间戳>/`；可用 `bag_dir:=/其他路径` 和 `extra_bag_topics:='/topic_a /topic_b'` 配置。此工作区每个会话保存一份完整地图，不使用 `pcd_save.interval` 分片；逐帧累积会随时间增长，应监测长时间建图的内存。配准算法、标定与操作员过滤逻辑没有改动。
+`record_bag` 默认 false，主动开启后保存到 `bags/<mode>_<时间戳>/`；可用 `bag_dir` 和 `extra_bag_topics` 配置。每会话一份地图，不使用 `pcd_save.interval` 分片。存图默认从去畸变扫描输入、0.1 m 全局体素去重，独立于实时匹配 0.5 m 滤波；默认最多 2000000 点，容量不足会告警并标记地图不完整，不静默删除旧区域。配置在本地 YAML 调整。
+
+无显示需求时全图发布默认关闭；建图 `--rviz` 自动开启有限显示副本，远程 PC 可传 `publish_map:=true`。默认有订阅者才每 5 s 发布，显示最多 100000 点，定位 reference_map 也用单独显示副本，不改变匹配地图。
+
+持续匹配有质量门控：坏帧不发布可信位姿、不插点、不录制；`tracking → degraded → lost` 见 `/tracking/status`。丢失状态锁定，自动定位先停止录制再 `/relocalize`，手动定位和建图需重启。局部窗口默认 400 m/触发范围 100 m，启动校验窗口边长 > 3×范围。门限是待实机调参初值，不是精度或安全保证。
 
 ### 定位
 
@@ -247,11 +254,11 @@ ros2 launch fast_lio mid360.launch.py mode:=localization \
 
 脚本会把启动目录固定在工作区根目录，因此可以使用 `pcd_map/xxx.pcd` 相对路径；手动 `ros2 launch` 的相对路径以当前终端 CWD 为准。宿主机快捷脚本最终在 Docker 内运行，绝对路径必须是**容器可访问的路径**，不是 `/home/shawntao/...` 的宿主机路径。
 
-`pcd_map/test.pcd` 只是原工程带来的启动示例，不能假定它对应当前场地，必须显式选择才能加载。定位默认先在建图原点 `[0,0,0]` 周围 3 m 内搜索初始位置和完整 360° 朝向；启动后保持静止，直到 `/localization/status` 为 `ready` 再移动。可以通过 `search_radius:=3.0` 覆盖半径，默认额外限制高度偏差 ±0.5 m，不搜索 roll/pitch。粗搜索、精配准和新扫描复核通过后，才发布里程计和允许轨迹录制；失败不回退到地图原点。
+`pcd_map/test.pcd` 只是原工程带来的启动示例，不能假定它对应当前场地，必须显式选择才能加载。定位默认先在建图原点 `[0,0,0]` 周围 3 m 内搜索初始位置和完整 360° 朝向；启动时保持静止，等待 `/localization/status` 为 `ready`。可以通过 `search_radius:=3.0` 覆盖半径，默认沿重力方向限制高度偏差 ±0.5 m；先通过重力对齐处理小倾斜，再搜索 xyz/yaw，不进行任意 6-DOF 搜索。粗搜索、精配准和新扫描复核通过后才允许跟踪，开始录制还须等待 `/tracking/status` 为 `tracking`；失败不回退到地图原点。
 
 初始位姿 `[x,y,z,yaw]`、重叠率、残差可从 `localization.matched_pose` / `matched_overlap` / `matched_rmse` 节点参数读取；失败后可调用 `/relocalize` 重试。完整状态、调参、边界与测试见 [启动重定位说明](doc/STARTUP_RELOCALIZATION.md)。显式 `relocalize:=false` 恢复原来的 YAML `localization.initial_pose` 与 `/initialpose` 直接播种方式；自动模式不接受直接位姿跳变。
 
-定位模式只读地图，发布 latched `/reference_map`，拒绝 `/map_save`。建图和定位的 `preprocess`、标定外参及 IMU 协方差须保持一致；本工作区包含检查这些参数一致性的测试。不同场景必须使用各自的实际地图；重复结构、低质量地图或超出搜索范围不保证重定位成功。
+定位模式只读地图，发布 latched `/reference_map`，拒绝 `/map_save`。新图附带 `.pcd.json`，自动校验点数/文件校验和、标定/时间及预处理参数，拒绝容量截断地图；正式采集建议加 `map_metadata:=strict`。旧图默认兼容并告警，不宣称元数据已验证。建图和定位的 `preprocess`、标定外参及 IMU 协方差须保持一致；本工作区包含检查这些参数一致性的测试。不同场景必须使用各自的实际地图；重复结构、低质量地图或超出搜索范围不保证重定位成功。
 
 原 GT 记录工具保留，也安装为 ROS 可执行脚本：
 
@@ -261,7 +268,7 @@ ros2 run fast_lio gt_record.py stop
 ros2 run fast_lio gt_postprocess.py --help
 ```
 
-详细 GT 流程见 [doc/GT_SYSTEM_README.md](doc/GT_SYSTEM_README.md)。CSV 默认位于运行环境用户家目录 `~/Record_Path`，Docker 中不在工作区挂载内，删除容器前须单独拷出。
+详细 GT 流程见 [doc/GT_SYSTEM_README.md](doc/GT_SYSTEM_README.md)。CSV 默认位于工作区 `records/`，开始录制即创建文件、逐样本追加，默认每 1 s 同步；可用 `record_dir:=/其他目录` 修改。显示轨迹限制点数，不截断 CSV；断流/失匹配造成的时间缺口不可当作连续真值。工作区 bind mount 可持久化记录，但 Git/镜像/部署 ZIP 不含这些数据。
 
 ### 无雷达启动与离线重放
 
@@ -298,8 +305,9 @@ ros2 launch fast_lio mid360.launch.py --show-args
 - 定位必填 `map_path`、文件/场景名校验、真实 PCD 写入/读回、同会话快照更新与跨会话覆盖保护。
 - Bash / Zsh 语法与 DDS 环境、容器自动选择/歧义拒绝、含空格路径、Docker 入口和 ZIP 输出保护；这些工具测试使用本地假 Docker，不连接 daemon。
 - 真实 Git 忽略/属性匹配（临时元数据，不初始化项目）、本地配置独占创建、IP 联动/校验、默认配置不变、相对 JSON/YAML 启动与非法 JSON 拒绝。
+- 有界搜索/启动门控、重力对齐、持续跟踪状态、窗口校验、体素容量和快照、CSV 持久化与异常尾行恢复、元数据兼容和完整性拒绝。
 
-测试不录 bag、不写参考地图、不发送真实雷达指令；会生成测试日志和原算法的启动 debug 日志。启动自检不能代替实际雷达收包、IMU 初始化、连续点云配准、建图精度或 ARM64 原生编译验证。日志见 `log/smoke/`，构建日志见 `log/latest_build/`。
+测试不录 bag、不写参考地图、不发送真实雷达指令；会生成测试日志，运行调试日志默认关闭。启动自检不能代替实际雷达收包、IMU 初始化、连续点云配准、建图精度或 ARM64 原生编译验证。日志见 `log/smoke/`，构建日志见 `log/latest_build/`。最新改动的实际验证边界见 [VERIFICATION.md](VERIFICATION.md)。
 
 ## 8. 部署打包
 
@@ -310,12 +318,12 @@ bash scripts/package.sh /其他目录/fastlio-mid360_jetson.zip
 ```
 
 包含源码、两套 SDK、正式 DDS/Docker/doc/scripts/tests 和 `pcd_map` 地图，
-排除 build/install/log/bags、Git/Python 缓存、旧 maps 与 reference、本地配置和私有环境文件。
+排除 build/install/log/bags/records、Git/Python 缓存、旧 maps 与 reference、本地配置和私有环境文件。
 自动检测 ZIP CRC、第三方源码、SDK ELF、脚本权限与不安全路径，生成同名
 `.zip.sha256`，拷到 Jetson 后先 `sha256sum -c` 再用 Linux `unzip` 解压。
 ZIP 不包含 Docker 镜像或 apt 离线依赖，首次准备环境仍需网络。
 
-当前容器已经具备编译/启动所需依赖，不需要额外下载；其 rosdep 数据库尚未初始化，不能通过 rosdep check 审计。换环境可先初始化/更新 rosdep，再在 Humble 容器中执行 `rosdep check --from-paths src --ignore-src --rosdistro humble`；确实缺依赖时才执行 `rosdep install --from-paths src --ignore-src --rosdistro humble -y`。核心依赖包含 ament/rosidl、rclcpp/components、pcl_ros/pcl_conversions、tf2_ros、std_srvs、Eigen/PCL、APR、Python3 development、OpenMP 及 colcon。
+前次验证容器具备编译/启动所需依赖，但当前 WSL 主机没有 ROS、Docker daemon 不可用，不能据此宣称最新节点代码已编译通过。换环境可先初始化/更新 rosdep，再在 Humble 容器中执行 `rosdep check --from-paths src --ignore-src --rosdistro humble`；确实缺依赖时才执行 `rosdep install --from-paths src --ignore-src --rosdistro humble -y`。核心依赖包含 ament/rosidl、rclcpp/components、pcl_ros/pcl_conversions、tf2_ros、std_srvs、Eigen/PCL、APR、Python3 development、OpenMP 及 colcon。
 
 常见排查：
 

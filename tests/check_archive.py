@@ -16,7 +16,7 @@ def check_archive(path):
         names = {item.filename for item in infos}
         if len(names) != len(infos):
             raise ValueError('Duplicate archive entries')
-        excluded = {'build', 'install', 'log', 'bags', 'reference', 'maps', 'secrets',
+        excluded = {'build', 'install', 'log', 'bags', 'records', 'Record_Path', 'reference', 'maps', 'secrets',
                     '.git', '.agents', '.codex', '__pycache__'}
         for item in infos:
             parts = PurePosixPath(item.filename).parts
@@ -48,6 +48,9 @@ def check_archive(path):
             'src/FAST_LIO/package.xml', 'src/FAST_LIO/include/map_storage.hpp',
             'src/FAST_LIO/include/bounded_relocalization.hpp',
             'src/FAST_LIO/include/startup_relocalization.hpp',
+            'src/FAST_LIO/include/workspace_runtime.hpp', 'src/FAST_LIO/test/runtime_test.cpp',
+            'src/FAST_LIO/scripts/trajectory_csv.py', 'tests/test_runtime_config.py',
+            'doc/RUNTIME_SAFETY.md',
             'src/FAST_LIO/test/relocalization_test.cpp', 'doc/STARTUP_RELOCALIZATION.md',
             'src/FAST_LIO/include/ikd-Tree/ikd_Tree.cpp',
             'src/FAST_LIO/include/IKFoM_toolkit/esekfom/esekfom.hpp',

@@ -2,6 +2,8 @@ build
 install
 log
 bags
+records
+Record_Path
 pcd_map/*.pcd
 maps
 .git

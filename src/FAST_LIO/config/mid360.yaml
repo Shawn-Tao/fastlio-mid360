@@ -18,7 +18,7 @@
         filter_size_map: 0.5
         # 限制局部地图大小
         # cube_side_length: 1000.0
-        cube_side_length: 100.0
+        cube_side_length: 400.0  # MUST be > 3 * mapping.det_range; center clearance 200 > 150 m
         runtime_pos_log_enable: false
         # 由节点自动生成 pcd_map/时间戳_场景名.pcd；手动与 Ctrl+C 存图使用同一路径。
         # map_dir 不在 YAML 固定：节点默认使用当前工作区根目录的 pcd_map/。
@@ -42,7 +42,10 @@
         # ---- GT system: trajectory recording (services start_path_record / stop_path_record) ----
         record:
             sample_every_n: 1             # record pose every N LiDAR frames (1 = 10 Hz on MID360)
-            republish_saved: true         # republish finished recordings on /path_record_N each second (RViz)
+            republish_saved: false        # opt-in bounded RViz previews; CSV always contains all trusted samples
+            flush_interval_sec: 1.0       # fflush + fdatasync while recording
+            max_display_poses: 2000
+            max_saved_paths: 3
             control_source: ""            # manual | vln | baseline  (set per run, e.g. by scripts/gt_record.py)
             instruction_id: ""            # episode / instruction label (set per run)
             note: ""                      # free-form note (set per run)
@@ -80,12 +83,30 @@
         publish:
             path_en: true                # true: publish Path
             effect_map_en: false         # true: publish Effects
-            map_en: true                 # true: publish Map cloud
+            map_en: false                # opt-in; RViz off does NOT imply map publication off
+            map_interval_sec: 5.0
+            map_voxel_size: 0.5           # display only; independent of saved PCD
+            map_max_points: 100000
+            path_max_poses: 2000
             scan_publish_en:  false       # false: close all the point cloud output
             dense_publish_en: false      # false: low down the points number in a global-frame point clouds scan.
             scan_bodyframe_pub_en: true  # true: output the point cloud scans in IMU-body-frame
 
         pcd_save:
             pcd_save_en: true
-            interval: -1                 # how many LiDAR frames saved in each pcd file; 
-                                        # -1 : all frames will be saved in ONE pcd file, may lead to memory crash when having too much frames.
+            interval: -1                 # compatibility only; one complete session map, no fragments
+            voxel_size: 0.1              # representative actual point nearest voxel center; 0 = legacy raw mode
+            dense_input: true            # saved-map input, independent of publish.dense_publish_en
+            max_points: 2000000          # 0 explicitly disables cap; cap reached => metadata complete=false
+            checkpoint_interval_sec: 60.0 # background checkpoint; 0 disables, Ctrl+C still finalizes
+
+        tracking:
+            min_points: 20
+            min_ratio: 0.05
+            max_residual: 0.20           # mean absolute point-to-plane residual, metres
+            lost_frames: 10
+            recovery_frames: 3
+            stale_seconds: 1.0          # synchronized-frame timeout, wall clock
+            max_position_std: 2.0       # KF covariance sanity bound, metres; NOT external accuracy confidence
+            max_lidar_queue: 30
+            max_imu_queue: 2000

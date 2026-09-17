@@ -1,5 +1,48 @@
 # 验证记录
 
+## 长期运行、存图和数据可信度更新（2026-09-17，当前代码）
+
+本节优先于后面的历史记录。当前 WSL 主机仍没有 `/opt/ros`、Eigen/PCL 开发环境；
+`docker ps` 仍提示 WSL integration 不可用。本次**没有完成最新 Humble 节点编译、
+ROS 无硬件 smoke、ARM64 原生编译或真实 MID360 精度/实时性能验收**。
+2026-09-16 的成功构建不覆盖本次源码。
+
+代码增加：
+
+- 局部窗口 400 m / det_range 100 m 及启动双层参数校验；可信更新后才裁剪/插点。
+- 持续跟踪质量、协方差和墙钟新鲜度门控；队列上限/时间戳回退清理；lost 锁定，
+  不输出可信位姿/TF、不录制、不插点。自动定位可显式重定位，手动模式须重启。
+- 独立全局 0.1 m 实测代表点体素缓存，默认 2000000 点上限；达到上限拒绝新体素，
+  不静默删除旧场地；PCD 标记不完整并在定位时拒绝。
+- 后台 PCD/JSON 保存、60 s 检查点、退出最终保存，CRC32/点数/文件大小及物理参数
+  校验；保存响应表示入队，须等待 /map_save/status saved。CRC 不是安全签名。
+- 参考地图和 IMU 扫描重力对齐后 xyz/yaw 搜索，转换回原图坐标，限制初始倾斜。
+- 默认关闭全图显示，按订阅者/间隔/显示点数限制；CSV 默认 records/ 流式同步写，
+  保留质量列和中断元数据，显示轨迹有界；读取器只容忍损坏的最终行。
+- 当前帧 Odometry 协方差发布顺序、位置/旋转索引与固定轴变换修正。
+
+本次可复现的主机检查：
+
+- 37 项 Python unittest 通过：11 工具、8 启动/元数据 action-stub 契约、9 Git/本地配置、
+  3 运行配置/CSV 恢复、6 不依赖 ROS 的工作区契约。stubs 不替代真实 launch 执行。
+- 8 项独立 CMake SDK 架构选择/拒绝检查通过；默认雷达 JSON 与 SDK 未修改。
+- 两组独立 C++ 策略测试使用 GCC 13、C++17、-O2、-Wall -Wextra -Werror 编译通过：
+  体素去重/容量/快照、窗口/质量/恢复/lost、重力旋转、CSV 同步和 CRC；有界搜索、
+  重力对齐重建、歧义/失败/超时、初始化/复核/取消/显式重试。
+- AddressSanitizer / UndefinedBehaviorSanitizer 策略检查通过；关闭 LeakSanitizer
+  (`ASAN_OPTIONS=detect_leaks=0`)，不宣称覆盖泄漏检查或完整 ROS/PCL 节点。
+- shell 语法、Python launch 语法和 git diff --check 通过。
+
+仍需在可用 Humble 环境运行 scripts/build.sh / scripts/test.sh；完整 CTest 现在登记
+16 项（8 SDK + 8 FAST-LIO 测试入口），本次未执行该完整 ROS 测试流程。
+PCL 实际 PCD/JSON 同步写入回归和依赖 numpy 的完整 GT 后处理本次未运行，不能
+把策略/CSV 读取测试当作端到端磁盘或轨迹评估验证。
+Jetson 请按 [运行安全与验收](doc/RUNTIME_SAFETY.md) 测静止 30 min、闭合误差、多个
+起点、断流、保存期间延迟/峰值内存和异常退出恢复。没有新增闭环或全局位姿图优化。
+
+新的部署 ZIP 是**待目标机编译验收的源码测试包**；旧 ZIP 不覆盖，轨迹/录包和本地
+配置不随包迁移，地图和配套 JSON 必须配对保管。
+
 ## 文档和 RViz2 脚本选项更新（2026-09-17）
 
 - README、启动重定位、Jetson、GT 文档分清编译与运行：编译不需要 PCD，

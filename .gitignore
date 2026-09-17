@@ -4,6 +4,7 @@
 /log/
 /bags/
 /Record_Path/
+/records/
 /.colcon/
 /src/*/build/
 /src/*/install/

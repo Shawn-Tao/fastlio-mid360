@@ -1,5 +1,6 @@
 #include "bounded_relocalization.hpp"
 #include "startup_relocalization.hpp"
+#include "workspace_runtime.hpp"
 #include <iostream>
 #include <random>
 #include <thread>
@@ -51,6 +52,23 @@ int main() {
         require(std::abs(angle(r.pose.yaw-actual.yaw))<0.02,"Incorrect recovered heading");
         require(matcher.within_bounds(r.pose),"Recovered pose escaped search radius");
         require(matcher.evaluate(observation(map,actual),r.pose).accepted,"Independent scan confirmation failed");
+        // Distinct reference/startup tilts: level both, then search only xyz+yaw.
+        const auto qm=fastlio_runtime::gravity_to_level({0.7,-0.4,-9.8},20);
+        const auto qs=fastlio_runtime::gravity_to_level({-1.2,0.8,-9.7},20);
+        auto transpose=[](const fastlio_runtime::Rotation& a) { return fastlio_runtime::Rotation{a[0],a[3],a[6],a[1],a[4],a[7],a[2],a[5],a[8]}; };
+        auto rotated=[](const Point& p,const fastlio_runtime::Rotation& rotation) {
+            const auto v=fastlio_runtime::rotate(rotation,{p.x,p.y,p.z}); return Point{v[0],v[1],v[2]};
+        };
+        std::vector<Point> level_map,level_scan;
+        for(const auto& p:map) level_map.push_back(rotated(rotated(p,transpose(qm)),qm));
+        for(const auto& p:scan) level_scan.push_back(rotated(rotated(p,transpose(qs)),qs));
+        const auto tilted=Matcher(level_map,o).search(level_scan);
+        require(tilted.accepted && squared_distance({tilted.pose.x,tilted.pose.y,tilted.pose.z},{actual.x,actual.y,actual.z})<0.01,"Gravity-leveled search failed");
+        for(std::size_t i=0;i<100;++i) {
+            const auto estimated=rotated(transform(level_scan[i],tilted.pose),transpose(qm));
+            const auto expected=rotated(transform(scan[i],actual),transpose(qm));
+            require(squared_distance(estimated,expected)<0.015,"Reconstruction escaped reference-map frame");
+        }
         auto reversed=matcher.search(observation(map,{0.2,0.1,0.0,-pi+0.02})); print(reversed);
         require(reversed.accepted && std::abs(angle(reversed.pose.yaw+pi-0.02))<0.03,"Full heading search failed at pi boundary");
         // Different scene and poses outside the specified search volume must fail.
@@ -121,6 +139,18 @@ int main() {
         require(startup.phase()==Startup::Phase::Confirming,"Retry failed to produce tentative match");
         require(!startup.update(unrelated,true,true) && !startup.ready() && startup.phase()==Startup::Phase::Failed,
             "Bad independent scan bypassed confirmation gate");
+        Startup interrupted(engine,1,1);
+        interrupted.reject_initialization("invalid_gravity");
+        require(interrupted.phase()==Startup::Phase::Failed && !interrupted.ready(),"Invalid initialization did not gate tracking");
+        require(interrupted.reset(),"Invalid initialization could not be retried");
+        interrupted.update(scan,true,true);
+        interrupted.invalidate("sensor_discontinuity");
+        require(interrupted.phase()==Startup::Phase::Failed && !interrupted.update(scan,true,true),"Discontinuous input bypassed worker cancellation");
+        end=std::chrono::steady_clock::now()+std::chrono::seconds(10);
+        bool reset=false;
+        while(!(reset=interrupted.reset()) && std::chrono::steady_clock::now()<end)
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        require(reset && !interrupted.ready(),"Cancelled worker could not be safely reset");
         std::cout<<"PASS: position/360-degree yaw recovery, holdout confirmation, bounds, mismatch, ambiguity, cancellation, timeout and parameter validation\n";
         std::cout<<"PASS: IMU/collection/search/fresh-confirmation gate, motion rejection, busy-worker safety, retry and one-shot READY transition\n";
         return 0;

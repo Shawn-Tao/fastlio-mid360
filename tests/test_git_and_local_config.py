@@ -64,7 +64,7 @@ class GitRulesTests(unittest.TestCase):
     def test_outputs_and_local_machine_settings_are_ignored(self):
         paths = (
             'build/a.o', 'install/lib/a.so', 'log/smoke/a.log', 'bags/session/a.db3',
-            'Record_Path/episode.csv', 'maps/test.pcd', 'reference/README.md',
+            'Record_Path/episode.csv', 'records/episode.csv', 'maps/test.pcd', 'reference/README.md',
             'pcd_map/lab.pcd', 'pcd_map/lab/map.pcd', 'pcd_map/map.tmpABC',
             'config/local/device.json', 'config/local/nested/device.yaml',
             'src/livox_ros_driver2/config/MID360.jetson.local.json',

@@ -6,6 +6,11 @@ dataflow, NOT ROS action execution, C++ node compilation or sensor performance.
 Run test_workspace.py under Humble as well for real ROS launch action coverage.
 """
 import importlib.util
+import copy
+import json
+import tempfile
+import zlib
+import yaml
 from pathlib import Path
 import sys
 from types import ModuleType, SimpleNamespace
@@ -91,6 +96,65 @@ class RelocalizationConfigTests(unittest.TestCase):
         rviz = [action for action in actions if action.get('package') == 'rviz2']
         self.assertEqual(len(rviz), 1)
         self.assertEqual(rviz[0]['executable'], 'rviz2')
+        actions = self.actions(mode='mapping', rviz='true')
+        mapping = next(action for action in actions if action.get('package') == 'fast_lio')
+        self.assertTrue(mapping['parameters'][1]['publish.map_en'])
+        mapping = self.actions(mode='mapping', publish_map='true')[1]
+        self.assertTrue(mapping['parameters'][1]['publish.map_en'])
+        mapping = self.actions(mode='mapping', rviz='true', publish_map='false')[1]
+        self.assertFalse(mapping['parameters'][1]['publish.map_en'])
+
+    def metadata_fixture(self, directory):
+        reference = Path(directory) / 'scene.pcd'
+        reference.write_bytes(b'VERSION .7\nFIELDS x y z intensity\nSIZE 4 4 4 4\nTYPE F F F F\nCOUNT 1 1 1 1\nWIDTH 1\nHEIGHT 1\nPOINTS 1\nDATA ascii\n1 2 3 4\n')
+        config = yaml.safe_load((ROOT / 'src/FAST_LIO/config/mid360_localization.yaml').read_text())['/**']['ros__parameters']
+        parameters = {}
+        def flatten(prefix, value):
+            for key, item in value.items():
+                name = f'{prefix}.{key}' if prefix else key
+                if isinstance(item, dict): flatten(name, item)
+                else: parameters[name] = item
+        flatten('', config)
+        metadata = {'schema_version': 1, 'frame_id': 'camera_init', 'pose_frame': 'IMU',
+                    'complete': True, 'points': 1, 'gravity': [0.2, 0.1, -9.8], 'parameters': parameters,
+                    'pcd_bytes': reference.stat().st_size, 'pcd_crc32': f'{zlib.crc32(reference.read_bytes()):08x}'}
+        return reference, metadata
+
+    def test_map_manifest_and_record_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            reference, meta = self.metadata_fixture(directory)
+            Path(str(reference) + '.json').write_text(json.dumps(meta))
+            options = self.actions(mode='localization', map_path=str(reference), map_metadata='strict', record_dir=directory)[1]['parameters'][1]
+            self.assertTrue(options['localization.metadata_verified'])
+            self.assertEqual(options['localization.map_gravity'], meta['gravity'])
+            self.assertEqual(options['record.dir'], directory)
+
+    def test_manifest_rejects_incomplete_calibration_and_corruption(self):
+        with tempfile.TemporaryDirectory() as directory:
+            reference, valid = self.metadata_fixture(directory)
+            for mutate in ('incomplete', 'extrinsic', 'points', 'crc', 'gravity'):
+                meta = copy.deepcopy(valid)
+                if mutate == 'incomplete': meta['complete'] = False
+                elif mutate == 'extrinsic': meta['parameters']['mapping.extrinsic_T'] = [1, 2, 3]
+                elif mutate == 'points': meta['points'] = 2
+                elif mutate == 'crc': meta['pcd_crc32'] = '00000000'
+                elif mutate == 'gravity': meta['gravity'] = [0, 0, 0]
+                Path(str(reference) + '.json').write_text(json.dumps(meta))
+                with self.assertRaises(ValueError): self.actions(mode='localization', map_path=str(reference))
+            actions = self.actions(mode='localization', map_path=str(reference), map_metadata='ignore')
+            self.assertFalse(actions[1]['parameters'][1]['localization.metadata_verified'])
+
+    def test_legacy_map_policy_and_invalid_window(self):
+        with tempfile.TemporaryDirectory() as directory:
+            reference, _ = self.metadata_fixture(directory)
+            self.actions(mode='localization', map_path=str(reference))
+            with self.assertRaisesRegex(ValueError, 'metadata is required'):
+                self.actions(mode='localization', map_path=str(reference), map_metadata='strict')
+            config = yaml.safe_load((ROOT / 'src/FAST_LIO/config/mid360.yaml').read_text())
+            config['/**']['ros__parameters']['cube_side_length'] = 100
+            path = Path(directory) / 'bad.yaml'; path.write_text(yaml.safe_dump(config))
+            with self.assertRaisesRegex(ValueError, 'stationary local-map window'):
+                self.actions(mode='mapping', config_file=str(path))
 
 
 if __name__ == '__main__':

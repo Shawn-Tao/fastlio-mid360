@@ -54,3 +54,6 @@ Linux Jetson 使用 host 网络；Docker Desktop 的 host 网络不等于已经�
 `.dockerignore` 排除源码部署不需要的 SDK/历史资料和运行数据，因为镜像只装环境，
 源码、SDK、地图都在运行时挂载。没有自动 source 旧 overlay、替换 apt 镜像源或执行系统升级。
 完整部署步骤见 [Jetson 部署指南](../doc/JETSON_DEPLOY.md)。
+轨迹 CSV 默认在工作区 records/，随工作区 bind mount 持久化；镜像和部署 ZIP
+不携带运行轨迹。原始 bag 默认关闭，正式建图按需显式开启。运行状态/检查点/
+地图配套 JSON 的验收见 [运行安全说明](../doc/RUNTIME_SAFETY.md)。

@@ -89,7 +89,12 @@ bash scripts/run.sh mapping lidar_config:=config/local/MID360.jetson.local.json 
 地图默认放到 `pcd_map/启动时间戳_lab_a.pcd`，实际完整路径见启动日志。
 `ros2 service call /map_save std_srvs/srv/Trigger '{}'` 可保存当前快照；正常 Ctrl+C
 保存最终地图到同一文件。强制 kill、断电或 Ctrl+C 保存尚未完成时没有自动保存保证。
-没有有效点云不创建空 PCD。长时间建图逐帧累积会增加内存，按场景分段。
+没有有效点云不创建空 PCD。默认 0.1 m 全局体素去重、2000000 点上限、60 s 后台
+检查点；容量告警时地图标记不完整。`/map_save` 只是入队，观察 /map_save/status
+直到 saved。PCD 和配套 .pcd.json 一起保留，定位建议 map_metadata:=strict。
+先修正本地旧 YAML 的窗口组合（当前默认 400 m/100 m），检查 /tracking/status。
+CSV 已持久化到工作区 records/，不是容器家目录。现场测试矩阵见
+[运行安全与验收](RUNTIME_SAFETY.md)，特别测保存时峰值内存、延迟和断流恢复。
 
 ## 4. 多场景定位与 PC 可视化
 
@@ -103,7 +108,8 @@ bash scripts/run.sh localization lidar_config:=config/local/MID360.jetson.local.
 可用上述相对路径；Docker 中的绝对路径必须是容器路径。
 定位只读地图，不保存建图 PCD。默认启用原点附近启动重定位：保持静止，
 在建图起点 3 m 内搜索位置和完整朝向，等待 `/localization/status` ready 后再移动。
-可用 `search_radius:=3.0` 覆盖半径；高度默认限制 ±0.5 m，不搜索 roll/pitch。
+可用 `search_radius:=3.0` 覆盖半径；先做重力对齐（初始倾斜默认 ≤20°），再搜索 xyz/yaw，
+高度沿重力方向默认限制 ±0.5 m，不支持任意 6-DOF。开始采集还需 tracking 状态健康。
 失败不发布定位里程计，可调用 `/relocalize` 重试。结果参数是
 `localization.matched_pose`（x,y,z,yaw，米/rad）。详见 [启动重定位](STARTUP_RELOCALIZATION.md)。
 显式 `relocalize:=false` 才使用 YAML `localization.initial_pose` 和 `/initialpose` 手动播种。
@@ -131,8 +137,8 @@ GT 轨迹采集与 bag 重放见 [GT 文档](GT_SYSTEM_README.md)。
 bash scripts/package.sh               # 生成工作区外的新 ZIP + SHA256
 ```
 
-打包不覆盖旧 ZIP，保留 `pcd_map` 场景地图。`~/Record_Path` 是 GT CSV 输出位置，
-不在工作区内；Docker 中属于容器用户家目录，删除容器前请单独拷出。
-`bags/` 也必须单独归档，部署 ZIP 默认不携带实验录包。
+打包不覆盖旧 ZIP，保留 `pcd_map` 场景地图和配套 `.pcd.json`。
+`records/` 是工作区内的 GT CSV 输出目录；`records/` 和 `bags/` 必须单独归档，
+部署 ZIP 默认不携带实验轨迹和录包。旧容器中的 `~/Record_Path` 数据仍需人工拷出。
 本地配置支持副本和相对路径，详见 [config/README.md](../config/README.md)；
 Git 忽略规则、源码 LF 与二进制约定见 [版本管理说明](VERSION_CONTROL.md)。

@@ -166,7 +166,7 @@ def main():
     p_start.add_argument("--pose", nargs=4, type=float, default=None, metavar=("X", "Y", "Z", "YAW_DEG"),
                          help="set the initial pose directly instead of the table")
 
-    p_stop = sub.add_parser("stop", help="stop recording and write the CSV")
+    p_stop = sub.add_parser("stop", help="stop recording and sync the streaming CSV (workspace records/)")
 
     p_read = sub.add_parser("readpose", help="print one /Odometry pose as a start_poses.csv row")
     p_read.add_argument("--name", default="instr", help="instruction_id column value for the printed row")

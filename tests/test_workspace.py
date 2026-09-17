@@ -35,6 +35,15 @@ class WorkspaceTests(unittest.TestCase):
         self.assertTrue(localization['localization']['mode'])
         self.assertFalse(localization['pcd_save']['pcd_save_en'])
 
+    def test_runtime_safety_defaults(self):
+        mapping = self.config('mid360.yaml')
+        self.assertGreater(mapping['cube_side_length'], 3 * mapping['mapping']['det_range'])
+        self.assertFalse(mapping['publish']['map_en'])
+        self.assertEqual(mapping['pcd_save']['voxel_size'], 0.1)
+        self.assertGreater(mapping['pcd_save']['max_points'], 0)
+        self.assertGreater(mapping['record']['flush_interval_sec'], 0)
+        self.assertTrue(self.config('mid360_localization.yaml')['localization']['relocalization']['gravity_alignment'])
+
     def test_topics_and_custom_message(self):
         mapping = self.config('mid360.yaml')
         self.assertEqual(mapping['preprocess']['lidar_type'], 1)

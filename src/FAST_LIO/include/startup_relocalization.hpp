@@ -31,6 +31,10 @@ public:
     Startup& operator=(const Startup&)=delete;
     Phase phase() const { return phase_; }
     bool ready() const { return phase_==Phase::Ready; }
+    void reject_initialization(const std::string& reason) {
+        if(phase_==Phase::WaitingImu || phase_==Phase::Collecting) fail(reason);
+    }
+    void invalidate(const std::string& reason) { cancelled_.store(true); fail(reason); }
     const Result& result() const { return result_; }
     const std::string& detail() const { return detail_; }
     const char* state() const {

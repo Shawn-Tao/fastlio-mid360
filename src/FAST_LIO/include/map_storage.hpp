@@ -10,10 +10,35 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <fstream>
+#include <fcntl.h>
 #include <unistd.h>
 #include <pcl/io/pcd_io.h>
 
 namespace fastlio_maps {
+inline void sync_file(const std::filesystem::path& path) {
+    const int fd=::open(path.c_str(),O_RDONLY);
+    if(fd<0) throw std::runtime_error("Cannot open file for durable sync");
+    const int result=fsync(fd); close(fd);
+    if(result!=0) throw std::runtime_error("Durable file sync failed");
+}
+inline bool write_metadata(const std::filesystem::path& output,const std::string& json,std::string& message) {
+    std::filesystem::path temporary;
+    try {
+        std::string pattern=output.string()+".tmpXXXXXX";
+        std::vector<char> buffer(pattern.begin(),pattern.end()); buffer.push_back('\0');
+        const int fd=mkstemp(buffer.data());
+        if(fd<0) throw std::runtime_error("Cannot create metadata temporary file");
+        close(fd); temporary=buffer.data();
+        { std::ofstream stream(temporary); stream<<json<<'\n'; stream.close();
+          if(!stream) throw std::runtime_error("Metadata write failed"); }
+        sync_file(temporary); std::filesystem::rename(temporary,output); sync_file(output.parent_path());
+        return true;
+    } catch(const std::exception& e) {
+        if(!temporary.empty()) { std::error_code ignored; std::filesystem::remove(temporary,ignored); }
+        message="Map metadata save failed: "+std::string(e.what()); return false;
+    }
+}
 inline bool valid_name(const std::string& name) {
     if (name.empty()) return false;
     for (unsigned char ch : name) {
@@ -72,8 +97,10 @@ bool write_atomic(const std::filesystem::path& output,
         pcl::PCDWriter writer;
         if (writer.writeBinary(temporary.string(), cloud) < 0)
             throw std::runtime_error("PCD writer failed.");
+        sync_file(temporary);
         // Replace this session's snapshot only after a complete PCD is written.
         std::filesystem::rename(temporary, output);
+        sync_file(output.parent_path());
         message = "Map saved: " + output.string();
         return true;
     } catch (const std::exception& error) {

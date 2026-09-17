@@ -29,6 +29,8 @@ int main() {
         point.x = 1; point.y = 2; point.z = 3; point.intensity = 4;
         cloud.push_back(point);
         require(fastlio_maps::write_atomic(output, cloud, message), "Atomic PCD save failed");
+        require(fastlio_maps::write_metadata(output.string()+".json", "{\"schema_version\":1}", message), "Atomic metadata save failed");
+        require(fs::exists(output.string()+".json"), "Metadata missing");
         pcl::PointCloud<pcl::PointXYZI> loaded;
         require(pcl::io::loadPCDFile(output.string(), loaded) == 0 && loaded.size() == 1, "PCD roundtrip failed");
         cloud.push_back(point);

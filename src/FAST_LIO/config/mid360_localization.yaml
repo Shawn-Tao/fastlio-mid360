@@ -10,7 +10,7 @@
         #   2. pass map_path:=/path/to/scene.pcd explicitly at launch,
         #   3. keep stationary near the mapping start (default <=3 m), wait for
         #      /localization/status ready. Position + full yaw are searched.
-        #      Same floor / upright mounting: roll and pitch are NOT searched.
+        #      Same floor / installation: gravity handles small tilt before xyz/yaw.
         # =====================================================================
         feature_extract_enable: false
         point_filter_num: 3
@@ -19,7 +19,7 @@
         filter_size_map: 0.5
         # The reference map is pre-loaded into the kd-tree; the local-map cube
         # is not used in localization mode (no adds / no FOV trimming).
-        cube_side_length: 100.0
+        cube_side_length: 400.0
         runtime_pos_log_enable: false
         map_file_path: ""
 
@@ -62,11 +62,16 @@
                 confirmation_frames: 3     # fresh frames, not the search snapshot
                 stationary_gyro: 0.08      # rad/s; motion check is only a heuristic
                 stationary_acc_fraction: 0.05
+                gravity_alignment: true  # level reference and source using their gravity before 4-DOF search
+                max_tilt_deg: 20.0        # initial IMU tilt; not arbitrary upside-down/6-DOF relocalization
 
         # ---- GT system: trajectory recording (same defaults as mid360.yaml) ----
         record:
             sample_every_n: 1
-            republish_saved: true
+            republish_saved: false
+            flush_interval_sec: 1.0
+            max_display_poses: 2000
+            max_saved_paths: 3
             control_source: ""
             instruction_id: ""
             note: ""
@@ -100,10 +105,10 @@
 
         publish:
             path_en: true
+            path_max_poses: 2000
             effect_map_en: false
-            # map_en publishes an ACCUMULATING cloud every second (O(t^2) CPU/memory
-            # growth -> a real drift/slowdown factor on Jetson long runs). Keep false:
-            # the fixed reference map is available on the latched /reference_map topic.
+            # Mapping-only bounded display; localization uses the fixed,
+            # independently downsampled, latched /reference_map instead.
             map_en: false
             # World-frame registered scan (downsampled, ~2-4k pts @10 Hz): used for
             # the rviz scan-vs-reference_map fit check.
@@ -116,3 +121,14 @@
             # keep false so the reference PCD cannot be overwritten by accident.
             pcd_save_en: false
             interval: -1
+
+        tracking:
+            min_points: 20
+            min_ratio: 0.05
+            max_residual: 0.20
+            lost_frames: 10
+            recovery_frames: 3
+            stale_seconds: 1.0
+            max_position_std: 2.0
+            max_lidar_queue: 30
+            max_imu_queue: 2000
