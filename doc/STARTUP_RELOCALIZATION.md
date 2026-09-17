@@ -86,7 +86,7 @@ bash scripts/rviz.sh localization
 在同一 ROS 环境和 domain 的终端：
 
 ```bash
-source scripts/setenv.bash
+source scripts/env.sh
 ros2 topic echo /localization/status --qos-durability transient_local
 ros2 param get /laser_mapping localization.matched_pose
 ros2 param get /laser_mapping localization.matched_rmse

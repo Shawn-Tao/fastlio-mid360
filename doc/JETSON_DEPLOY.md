@@ -7,6 +7,17 @@
 所有命令均在各自机器的 `fastlio-mid360_space` 根目录执行。NX 负责接雷达和计算，
 AGX 只负责显示；先准备可用的 Humble 环境和 NX 的本地雷达配置。首次部署步骤见下文。
 
+**交互终端：加载环境、查看话题**（Bash/Zsh 通用，每个新终端执行一次）：
+
+```bash
+source scripts/env.sh
+ros2 topic list
+ros2 node list
+```
+
+ROS 在 Docker 中时，先用 `bash docker/run.sh` 进入对应容器，再执行以上命令。
+必须用 `source`，不能用 `bash scripts/env.sh`；后者无法修改当前终端环境。
+
 **NX：编译和自检**（编译不需要 PCD；首次部署或更新代码后执行）：
 
 ```bash
@@ -95,7 +106,7 @@ bash scripts/install_deps.sh --apply   # 确认后安装缺少的依赖，不做
 export FASTLIO_NATIVE=1
 FASTLIO_BUILD_JOBS=2 bash scripts/build.sh
 bash scripts/test.sh
-source scripts/setenv.bash             # Zsh：source scripts/setenv.zsh
+source scripts/env.sh                  # Bash/Zsh 自动适配，当前终端加载 ROS/overlay/DDS
 ```
 
 如尚未装 ROS，先按 Humble 的官方安装流程安装，或用下面 Docker 分支。

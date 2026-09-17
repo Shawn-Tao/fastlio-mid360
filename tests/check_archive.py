@@ -42,7 +42,7 @@ def check_archive(path):
         required = [
             'README.md', 'VERIFICATION.md', '.dockerignore', '.gitignore', '.gitattributes', 'colcon.meta',
             'config/README.md', 'config/COLCON_IGNORE',
-            'scripts/README.md', 'scripts/rviz.sh', 'scripts/setenv.bash', 'scripts/setenv.zsh',
+            'scripts/README.md', 'scripts/rviz.sh', 'scripts/env.sh', 'scripts/setenv.bash', 'scripts/setenv.zsh',
             'scripts/init_local_config.sh', 'scripts/lib/init_local_config.py',
             'scripts/lib/common.sh', 'scripts/lib/dds_env.sh', 'scripts/lib/in_container.sh',
             'scripts/lib/check_network.py',

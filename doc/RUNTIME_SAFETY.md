@@ -17,10 +17,10 @@ bash scripts/run.sh mapping lidar_config:=config/local/MID360.jetson.local.json 
   map_name:=lab_a publish_map:=true record_bag:=true
 ```
 
-NX 终端 B：进入相同 ROS 环境后检查状态、请求保存（Bash；Docker 先进入对应容器）：
+NX 终端 B：进入相同 ROS 环境后检查状态、请求保存（Bash/Zsh；Docker 先进入对应容器）：
 
 ```bash
-source scripts/setenv.bash
+source scripts/env.sh
 ros2 topic echo /tracking/status --once --qos-durability transient_local
 ros2 service call /map_save std_srvs/srv/Trigger '{}'
 ros2 topic echo /map_save/status --qos-durability transient_local

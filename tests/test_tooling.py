@@ -116,6 +116,132 @@ class ToolingTests(unittest.TestCase):
                 expected_uri = f'file://{ROOT}/dds_config/cyclonedds.xml' if selection == 'cyclone' else ''
                 self.assertEqual(result.stdout, f'{rmw}|18|{expected_uri}')
 
+    def environment_fixture(self, directory, overlay=True, include_ros=True, ros_failure=False):
+        # Explicit fake setup files: tests sourcing/DDS, not a ROS installation.
+        workspace = Path(directory) / 'portable workspace'
+        ros_root = Path(directory) / 'fake_humble'
+        (workspace / 'scripts/lib').mkdir(parents=True)
+        for name in ('env.sh', 'setenv.bash', 'setenv.zsh'):
+            content = (ROOT / 'scripts' / name).read_text()
+            (workspace / 'scripts' / name).write_text(content.replace('/opt/ros/humble', str(ros_root)))
+        shutil.copy(ROOT / 'scripts/lib/dds_env.sh', workspace / 'scripts/lib/dds_env.sh')
+        if include_ros:
+            ros_root.mkdir()
+            for shell in ('bash', 'zsh'):
+                (ros_root / ('setup.' + shell)).write_text(
+                    'return 7\n' if ros_failure else
+                    f'export ROS_DISTRO=humble FAKE_ENV_ROS_SHELL={shell}\n')
+        if overlay:
+            (workspace / 'install').mkdir()
+            for shell in ('bash', 'zsh'):
+                (workspace / 'install' / ('local_setup.' + shell)).write_text(
+                    f'export FAKE_ENV_OVERLAY_SHELL={shell}\n')
+        return workspace
+
+    def source_environment(self, shell, workspace, entry='env.sh', **changes):
+        command = (
+            'fastlio_test_pwd="$PWD"; fastlio_test_opts="$-"; fastlio_test_arg="$1"; '
+            'if source "$1/scripts/$2"; then fastlio_test_code=0; else fastlio_test_code=$?; fi; '
+            '[ "$PWD" = "$fastlio_test_pwd" ] && [ "$-" = "$fastlio_test_opts" ] '
+            '&& [ "$1" = "$fastlio_test_arg" ] || exit 88; '
+            'if typeset -f _fastlio_env_load >/dev/null; then exit 89; fi; '
+            'printf "__ENV__%s|%s|%s|%s|%s|%s\\n" '
+            '"${FAKE_ENV_ROS_SHELL:-}" "${FAKE_ENV_OVERLAY_SHELL:-}" '
+            '"${ROS_DOMAIN_ID:-}" "${RMW_IMPLEMENTATION:-}" "${CYCLONEDDS_URI:-}" '
+            '"${ROS_LOCALHOST_ONLY:-}"; exit "$fastlio_test_code"')
+        env = self.environment(**changes)
+        for name in ('FAKE_ENV_ROS_SHELL', 'FAKE_ENV_OVERLAY_SHELL'):
+            env.pop(name, None)
+        return subprocess.run([shell, '-c', command, 'source-env-test', str(workspace), entry],
+                              env=env, text=True, capture_output=True, timeout=15)
+
+    def environment_shells(self):
+        return ['bash'] + (['zsh'] if shutil.which('zsh') else [])
+
+    def test_environment_entry_rejects_child_shell_execution(self):
+        for shell in self.environment_shells():
+            result = subprocess.run([shell, str(ROOT / 'scripts/env.sh')],
+                                    env=self.environment(), text=True, capture_output=True, timeout=15)
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+            self.assertIn('source scripts/env.sh', result.stderr)
+            self.assertNotIn('Environment loaded', result.stdout)
+
+    def test_environment_entry_loads_matching_shell_and_defaults(self):
+        with tempfile.TemporaryDirectory(prefix='fastlio-env-stubs-') as directory:
+            workspace = self.environment_fixture(directory)
+            for shell in self.environment_shells():
+                result = self.source_environment(shell, workspace, CYCLONEDDS_URI='file:///stale.xml')
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn(f'__ENV__{shell}|{shell}|18|rmw_fastrtps_cpp||', result.stdout)
+                self.assertIn(f'workspace={workspace}', result.stdout)
+                self.assertIn('ros2 topic list', result.stdout)
+
+    def test_environment_entry_preserves_explicit_dds_overrides(self):
+        with tempfile.TemporaryDirectory(prefix='fastlio-env-stubs-') as directory:
+            workspace = self.environment_fixture(directory)
+            for shell in self.environment_shells():
+                for changes in ({'FASTLIO_DDS': 'cyclone'}, {'RMW_IMPLEMENTATION': 'rmw_cyclonedds_cpp'}):
+                    result = self.source_environment(shell, workspace, ROS_DOMAIN_ID='23',
+                                                     CYCLONEDDS_URI='file:///custom.xml', **changes)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn(f'__ENV__{shell}|{shell}|23|rmw_cyclonedds_cpp|file:///custom.xml|',
+                                  result.stdout)
+
+    def test_environment_entry_supports_ros_only_without_overlay(self):
+        with tempfile.TemporaryDirectory(prefix='fastlio-env-stubs-') as directory:
+            workspace = self.environment_fixture(directory, overlay=False)
+            for shell in self.environment_shells():
+                result = self.source_environment(shell, workspace)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn(f'__ENV__{shell}||18|rmw_fastrtps_cpp||', result.stdout)
+                self.assertIn('without workspace overlay', result.stderr)
+
+    def test_environment_entry_missing_ros_gives_docker_guidance(self):
+        with tempfile.TemporaryDirectory(prefix='fastlio-env-stubs-') as directory:
+            workspace = self.environment_fixture(directory, include_ros=False)
+            for shell in self.environment_shells():
+                result = self.source_environment(shell, workspace)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn('bash docker/run.sh', result.stderr)
+                self.assertIn('inside the container', result.stderr)
+                self.assertNotIn('Environment loaded', result.stdout)
+
+    def test_environment_entry_propagates_setup_failure(self):
+        with tempfile.TemporaryDirectory(prefix='fastlio-env-stubs-') as directory:
+            workspace = self.environment_fixture(directory, ros_failure=True)
+            for shell in self.environment_shells():
+                result = self.source_environment(shell, workspace)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn('Failed to load', result.stderr)
+                self.assertNotIn('Environment loaded', result.stdout)
+
+    def test_environment_entry_rejects_invalid_dds(self):
+        with tempfile.TemporaryDirectory(prefix='fastlio-env-stubs-') as directory:
+            workspace = self.environment_fixture(directory)
+            for shell in self.environment_shells():
+                result = self.source_environment(shell, workspace, FASTLIO_DDS='unsupported')
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn('FASTLIO_DDS must be', result.stderr)
+                self.assertNotIn('Environment loaded', result.stdout)
+
+    def test_environment_entry_warns_without_overwriting_localhost(self):
+        with tempfile.TemporaryDirectory(prefix='fastlio-env-stubs-') as directory:
+            workspace = self.environment_fixture(directory)
+            for shell in self.environment_shells():
+                for value in ('0', '1'):
+                    result = self.source_environment(shell, workspace, ROS_LOCALHOST_ONLY=value)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn(f'__ENV__{shell}|{shell}|18|rmw_fastrtps_cpp||{value}', result.stdout)
+                    self.assertEqual('prevents NX/AGX' in result.stderr, value == '1')
+
+    def test_legacy_environment_entries_reject_wrong_shell(self):
+        for shell, entry, hint in [('bash', 'setenv.zsh', 'setenv.bash')] + (
+                [('zsh', 'setenv.bash', 'setenv.zsh')] if shutil.which('zsh') else []):
+            result = self.source_environment(shell, ROOT, entry=entry)
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+            self.assertIn(hint, result.stderr)
+            self.assertNotIn('bad substitution', result.stderr)
+
     def test_dds_xml_has_no_fixed_domain_nic_or_peer(self):
         ns = {'c': 'https://cdds.io/config'}
         for path in (ROOT / 'dds_config').glob('*.xml'):
@@ -155,7 +281,7 @@ class ToolingTests(unittest.TestCase):
         self.assertIn('NEW .zip path', result.stderr)
 
     def test_scripts_layout_and_active_references(self):
-        expected = {'build.sh', 'test.sh', 'run.sh', 'rviz.sh', 'setenv.bash', 'setenv.zsh',
+        expected = {'build.sh', 'test.sh', 'run.sh', 'rviz.sh', 'env.sh', 'setenv.bash', 'setenv.zsh',
                     'init_local_config.sh', 'check_network.sh', 'install_deps.sh', 'package.sh'}
         actual = {p.name for p in (ROOT / 'scripts').iterdir()
                   if p.is_file() and p.suffix in ('.sh', '.bash', '.zsh', '.py') and '.local.' not in p.name}

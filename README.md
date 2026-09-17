@@ -7,6 +7,17 @@
 所有命令均在各自机器的 `fastlio-mid360_space` 根目录执行。NX 负责接雷达和计算，
 AGX 只负责显示；先准备可用的 Humble 环境和 NX 的本地雷达配置。首次部署步骤见下文。
 
+**交互终端：加载环境、查看话题**（Bash/Zsh 通用，每个新终端执行一次）：
+
+```bash
+source scripts/env.sh
+ros2 topic list
+ros2 node list
+```
+
+ROS 在 Docker 中时，先用 `bash docker/run.sh` 进入对应容器，再执行以上命令。
+必须用 `source`，不能用 `bash scripts/env.sh`；后者无法修改当前终端环境。
+
 **NX：编译和自检**（编译不需要 PCD；首次部署或更新代码后执行）：
 
 ```bash
@@ -91,7 +102,10 @@ ros2 launch fast_lio mid360.launch.py mode:=mapping map_name:=lab_a rviz:=false 
 
 `local_setup.bash` 在已 source Humble 后加载本工作区；也可直接 `source install/setup.bash`。使用 zsh 时相应换成 `setup.zsh` / `local_setup.zsh`。不要混入旧 driver / FAST-LIO 工作区的 overlay。环境入口不分 x86/ARM，旧架构别名已归档到 scripts/backup/。
 
-交互 ROS CLI 推荐 `source scripts/setenv.bash`（Zsh 用 `setenv.zsh`），它还配置与运行脚本一致的默认 DDS 域 18；仅 source ROS/install 不会设置 domain。PC、Jetson 和另开终端必须保持同一个 `ROS_DOMAIN_ID`。
+交互 ROS CLI 推荐 `source scripts/env.sh`，自动适配 Bash/Zsh，并打印实际工作区、
+domain 和 RMW；旧 `setenv.bash` / `setenv.zsh` 仍保留。默认 DDS 域 18，已有
+`ROS_DOMAIN_ID`/RMW 覆盖值会保留。仅 source ROS/install 不会设置 domain。
+PC、Jetson 和另开终端必须保持同一个 `ROS_DOMAIN_ID`；修改域后先 `ros2 daemon stop`。
 
 低内存机器建议 `bash scripts/build.sh`：默认两个编译任务、包级串行，不删除任何已有产物。手动编译可用：
 
@@ -120,7 +134,7 @@ bash docker/run.sh --detach
 原电脑目录：`/home/shawntao/workspace/humble_space/fastlio-mid360_space`。
 原验证容器：`3018b9a5759e`，挂载目录：`/workspace/humble_space/fastlio-mid360_space`。
 部署可以放在任意路径；脚本不固定原容器 ID，按工作区 bind mount 查找。
-脚本顶层保留 10 个入口，内部实现放 `scripts/lib/`，5 个历史别名放
+脚本顶层保留 11 个入口（新增统一交互环境入口 `env.sh`），内部实现放 `scripts/lib/`，5 个历史别名放
 `scripts/backup/`；现行入口不依赖备份，部署 ZIP 不含备份目录。
 
 ```text
@@ -133,7 +147,7 @@ fastlio-mid360_space/
 ├── pcd_map/                 # 与 src/ 同级的统一地图目录
 │   └── test.pcd             # 显式选择的自检示例，不作为默认定位地图
 ├── records/                 # 按需生成的持久化 CSV，不进入 Git/部署 ZIP
-├── scripts/                # 10 个入口；lib/ 内部实现、backup/ 历史别名
+├── scripts/                # 11 个入口；lib/ 内部实现、backup/ 历史别名
 ├── config/                 # 本地配置初始化说明；local/ 不进入 Git 或部署包
 ├── dds_config/             # 可选 Cyclone DDS；不固定网卡、peer 或 domain
 ├── docker/                 # PC / Jetson 通用 Humble CPU 镜像与启动脚本

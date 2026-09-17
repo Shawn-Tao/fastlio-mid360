@@ -3,6 +3,23 @@
 日常指令在 [主 README 开头](README.md)、[脚本说明开头](scripts/README.md) 和
 [Jetson 指南开头](doc/JETSON_DEPLOY.md)；本文件只记录验证范围，不替代启动指南。
 
+## 统一交互环境入口（2026-09-17）
+
+- 新增 `source scripts/env.sh`，自动选择 Bash/Zsh 的现有 setenv 实现，加载
+  Humble、可选工作区 overlay 与启动脚本一致的 DDS；显示实际工作区、domain、RMW。
+  顶层现为 11 个入口，原 setenv.bash/zsh 继续保留供现行脚本及兼容调用使用。
+- 必须 source，显式拒绝 `bash/zsh scripts/env.sh`；不修改 shell 启动文件、
+  网卡或其他终端。ROS 在 Docker 内时提示先进入对应容器，不能向宿主机注入环境。
+- 未编译支持 ROS/DDS-only；未安装 Humble、底层 setup 失败或 DDS 选择无效时
+  返回错误，不打印加载成功。保留显式 DDS/domain/localhost 设置，localhost-only=1 告警。
+- 新增 9 项主机环境入口回归：真实 Bash/Zsh 执行、路径含空格、匹配 shell、
+  默认 DDS/覆盖、ROS-only、缺失/失败、错误 DDS、localhost 告警及旧入口错 shell 拒绝。
+  使用明确的假 ROS/overlay setup 文件，只验证 shell 行为和环境变量，不代表 ROS 编译。
+- 全部 52 项主机 Python 回归通过，90 个文档 Bash 代码块与路径检查通过，
+  三份主要速查区一致，git diff --check 通过。当前主机无 Humble，实机
+  `ros2 topic list`、NX↔AGX 发现及 RViz 显示仍需目标机验证。
+- 部署归档检查将 env.sh 列为必需文件；新版 ZIP 包含此入口，不覆盖历史包。
+
 ## 文档速查前置与同步（2026-09-17）
 
 - 三份主要文档开头使用完全一致的 NX 编译/自检、NX 建图、AGX 建图显示、

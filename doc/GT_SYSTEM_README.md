@@ -22,12 +22,12 @@ bash scripts/rviz.sh localization
 NX 终端 B：进入与终端 A 相同的 ROS 环境，保持静止并检查状态：
 
 ```bash
-source scripts/setenv.bash
+source scripts/env.sh
 ros2 topic echo /localization/status --once --qos-durability transient_local
 ros2 topic echo /tracking/status --once --qos-durability transient_local
 ```
 
-以上 source 用于 Bash，Zsh 换成 `setenv.zsh`；Docker 场景先进入对应容器。
+以上 source 自动适配 Bash/Zsh；Docker 场景先进入对应容器。
 `--once` 只读取一次状态，并不会自动等待 ready。确认 localization 为 ready、
 tracking 为 tracking 且扫描贴合地图后，仍在终端 B 开始采集：
 
@@ -95,11 +95,11 @@ RViz2 默认关闭；建图/定位/重放脚本追加 `--rviz` 可开启，`--no
 
 ## 2. 同一运行环境中的 GT 客户端
 
-本机另开 Bash 终端：
+本机另开终端（Bash/Zsh 均可）：
 
 ```bash
 cd /实际位置/fastlio-mid360_space
-source scripts/setenv.bash
+source scripts/env.sh
 # Docker 场景先在宿主机 bash docker/run.sh，下面命令在容器内执行
 ros2 run fast_lio gt_record.py readpose --name lab_01
 ros2 run fast_lio gt_record.py start --source manual --instr lab_01 --note "operator A"
@@ -151,7 +151,7 @@ bash scripts/run.sh replay config_file:=mid360.yaml map_name:=lab_a_offline use_
 # 或定位重放（同样强制选择地图）
 bash scripts/run.sh replay config_file:=mid360_localization.yaml \
   map_path:=pcd_map/实际地图.pcd use_sim_time:=true
-# 终端 B：source scripts/setenv.bash 后播放原始传感器数据
+# 终端 B：source scripts/env.sh 后播放原始传感器数据
 ros2 bag play /实际路径/bag目录 --clock --topics /livox/lidar /livox/imu
 ```
 

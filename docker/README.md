@@ -53,8 +53,9 @@ FASTLIO_NATIVE=1 bash scripts/rviz.sh localization
 
 ```bash
 bash docker/run.sh
-# 以下在容器内执行（Bash）：
-source scripts/setenv.bash
+# 以下在容器内执行（Bash/Zsh 通用）：
+source scripts/env.sh
+ros2 topic list
 ```
 
 ## 镜像和运行说明

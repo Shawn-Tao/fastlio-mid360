@@ -35,10 +35,10 @@ ROS_DOMAIN_ID=23 bash scripts/rviz.sh mapping
 
 跨机不能设置 `ROS_LOCALHOST_ONLY=1`。切换 RMW/domain 后，在各自相同 ROS 环境
 的另一个终端检查（Bash；Docker 场景先进入对应容器）。交互终端也须设置与运行
-命令一致的覆盖值，如 `export ROS_DOMAIN_ID=23` 后再 source：
+命令一致的覆盖值，如 `export ROS_DOMAIN_ID=23` 后再 source。统一入口自动识别 Bash/Zsh：
 
 ```bash
-source scripts/setenv.bash
+source scripts/env.sh
 ros2 daemon stop
 ros2 node list
 ```
@@ -63,7 +63,7 @@ localhost 域 91。不要把 `ROS_LOCALHOST_ONLY=1` 留在跨机运行终端。
 export FASTLIO_DDS=cyclone ROS_DOMAIN_ID=18
 # PC 如需使用单独配置，在 source 前指定绝对路径：
 # export CYCLONEDDS_URI="file://$PWD/dds_config/cyclonedds_pc.xml"
-source scripts/setenv.bash           # Zsh 改为 scripts/setenv.zsh
+source scripts/env.sh               # 自动适配 Bash/Zsh
 ```
 
 XML 使用 `Domain Id="any"`，由 `ROS_DOMAIN_ID` 统一指定域。默认自动选择网卡；

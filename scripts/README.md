@@ -7,6 +7,17 @@
 所有命令均在各自机器的 `fastlio-mid360_space` 根目录执行。NX 负责接雷达和计算，
 AGX 只负责显示；先准备可用的 Humble 环境和 NX 的本地雷达配置。首次部署步骤见下文。
 
+**交互终端：加载环境、查看话题**（Bash/Zsh 通用，每个新终端执行一次）：
+
+```bash
+source scripts/env.sh
+ros2 topic list
+ros2 node list
+```
+
+ROS 在 Docker 中时，先用 `bash docker/run.sh` 进入对应容器，再执行以上命令。
+必须用 `source`，不能用 `bash scripts/env.sh`；后者无法修改当前终端环境。
+
 **NX：编译和自检**（编译不需要 PCD；首次部署或更新代码后执行）：
 
 ```bash
@@ -64,10 +75,10 @@ bash scripts/init_local_config.sh --name jetson \
 `host-ip` 是 NX 接雷达的地址，不是 AGX 地址。完整首次部署见
 [Jetson 指南](../doc/JETSON_DEPLOY.md)，本地副本说明见 [config/README.md](../config/README.md)。
 
-日常只记 `build.sh`、`run.sh`、`rviz.sh`、`test.sh`。
+日常只记 `build.sh`、`run.sh`、`rviz.sh`、`test.sh`；交互查看话题用 `source scripts/env.sh`。
 `run.sh --rviz` 在计算端同时开 GUI；`rviz.sh` 只启动查看器，不能代替计算端。
 
-## 顶层保留的 10 个入口
+## 顶层保留的 11 个入口
 
 | 分类 | 文件 | 用途 |
 |---|---|---|
@@ -79,6 +90,7 @@ bash scripts/init_local_config.sh --name jetson \
 | 配置 | check_network.sh | 只读检查 JSON 接收地址和路由，不改网卡 |
 | 部署 | install_deps.sh | 首次部署依赖；--print 只查看，--apply 明确安装 |
 | 部署 | package.sh | 新 ZIP + SHA256，拒绝覆盖旧包 |
+| 交互 | env.sh | 推荐统一入口：source，自动识别 Bash/Zsh，显示实际 domain/RMW |
 | 交互 | setenv.bash | Bash 中 source，加载 ROS / 可选 overlay / DDS |
 | 交互 | setenv.zsh | Zsh 中 source，同上；与 CPU 架构无关 |
 
@@ -87,6 +99,20 @@ bash scripts/init_local_config.sh --name jetson \
 没有删除历史脚本，也没有把必需 helper 当作备份。
 
 ## 环境选择和高级用法
+
+`env.sh` 加载 Humble、可选的本工作区 install overlay 及与启动脚本相同的 DDS。
+未编译时只加载 ROS/DDS 并提示，仍能查看标准话题；未安装 Humble 时明确报错，
+不假装已完成配置。它只作用于当前终端，不修改 .bashrc/.zshrc、系统网卡或其他终端。
+已有 `setenv.bash` / `setenv.zsh` 保持可用，运行入口仍使用这些底层脚本。
+
+如需使用非默认 domain，在 **source 前** 设置，NX、AGX 和交互终端均须一致：
+
+```bash
+export ROS_DOMAIN_ID=23
+source scripts/env.sh
+ros2 daemon stop                     # 切换 domain/RMW 后清理旧 CLI daemon
+ros2 topic list
+```
 
 定位预设已为 `/reference_map` 配置 Transient Local。不同网卡、组播限制和
 防火墙等见 [DDS 说明](../dds_config/README.md)。不要在 AGX 执行 run.sh 来“只看图”。
@@ -105,6 +131,6 @@ bash scripts/run.sh --help
 bash scripts/rviz.sh --help
 ```
 
-脚本使用 Bash，因此 Zsh 终端也可直接 `bash scripts/run.sh ...`。只有交互 source
-需按当前 shell 选择 setenv.bash / setenv.zsh。改变模式/地图不需重新编译，
+运行脚本使用 Bash，因此 Zsh 终端也可直接 `bash scripts/run.sh ...`。交互用
+`source scripts/env.sh` 自动适配，旧 setenv 入口仍需按 shell 选择。改变模式/地图不需重新编译，
 但旧 install 副本使用本次更新的 launch/RViz 配置前应先重新 build。
