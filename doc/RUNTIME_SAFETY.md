@@ -45,6 +45,26 @@ AGX 显示分别用 `bash scripts/rviz.sh mapping` / `localization`，两者择�
 全局存图缓存。没有闭环或位姿图全局优化，不能把轨迹估计当作外部绝对真值。
 原生策略测试不是 Humble/ARM64 编译、实机精度和性能验收。
 
+### TF QoS 初始化异常的修复与复测
+
+若启动日志包含 `qos_overrides./tf.publisher.durability`、`startup-only` 和
+`fastlio_mapping ... exit code -6`，说明 FAST-LIO 已退出，驱动仍运行不代表正在建图。
+修复版将运行时参数保护回调放在全部 ROS 组件初始化后注册，避免阻止 Humble TF
+声明只读 QoS 参数，运行期间的参数限制保持不变；无需改雷达 JSON 或 DDS domain。
+
+先正常 Ctrl+C 停止旧程序，等待保存/退出；在实际运行的 Jetson/容器中同步修复版源码，
+再在工作区根目录执行（不能只重启旧 install 二进制）：
+
+```bash
+bash scripts/build.sh
+bash scripts/test.sh
+```
+
+自检已覆盖两种模式的 TF/QoS 初始化和在线参数保护，无需传 PCD 或接雷达。
+它会启动独立回环驱动，须先停止占用雷达端口的旧驱动。通过后再运行本文开头的
+建图/定位命令，确认出现 `Node init finished.`；实际跟踪还须有效传感器输入和
+`/tracking/status` 为 tracking。当前主机验证范围见 [验证记录](../VERIFICATION.md)。
+
 ## 2. 局部窗口与可信帧
 
 - 建图窗口默认 400 m，`mapping.det_range=100 m`。沿用的移动阈值是

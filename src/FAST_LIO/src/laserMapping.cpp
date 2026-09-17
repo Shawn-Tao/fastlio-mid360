@@ -878,24 +878,6 @@ public:
         }
 
         initialize_runtime();
-        parameter_callback_=this->add_on_set_parameters_callback([](const std::vector<rclcpp::Parameter>& parameters) {
-            rcl_interfaces::msg::SetParametersResult result; result.successful=true;
-            for(const auto& p:parameters) {
-                const auto name=p.get_name();
-                const bool metadata=name=="record.control_source" || name=="record.instruction_id" || name=="record.note";
-                const bool matched=name=="localization.matched_pose" || name=="localization.matched_rmse" || name=="localization.matched_overlap";
-                if(metadata && p.get_type()!=rclcpp::ParameterType::PARAMETER_STRING) {
-                    result.successful=false; result.reason="Recording labels must be strings"; break;
-                }
-                if(name=="record.sample_every_n" && (p.get_type()!=rclcpp::ParameterType::PARAMETER_INTEGER || p.as_int()<1)) {
-                    result.successful=false; result.reason="record.sample_every_n must be a positive integer"; break;
-                }
-                if(!metadata && !matched && name!="record.sample_every_n") {
-                    result.successful=false; result.reason="This parameter is startup-only; change YAML/launch arguments and restart"; break;
-                }
-            }
-            return result;
-        });
         RCLCPP_INFO(this->get_logger(), "p_pre->lidar_type %d", p_pre->lidar_type);
 
         path.header.stamp = this->get_clock()->now();
@@ -1087,6 +1069,28 @@ public:
 
         start_path_record_srv_ = this->create_service<std_srvs::srv::Trigger>("start_path_record", std::bind(&LaserMappingNode::start_path_record_callback, this, std::placeholders::_1, std::placeholders::_2));
         stop_path_record_srv_ = this->create_service<std_srvs::srv::Trigger>("stop_path_record", std::bind(&LaserMappingNode::stop_path_record_callback, this, std::placeholders::_1, std::placeholders::_2));
+
+        // Install the runtime guard only after all ROS components are initialized.
+        // Humble's TF broadcaster declares read-only qos_overrides./tf.publisher.*
+        // parameters during construction, which must not be rejected by this guard.
+        parameter_callback_=this->add_on_set_parameters_callback([](const std::vector<rclcpp::Parameter>& parameters) {
+            rcl_interfaces::msg::SetParametersResult result; result.successful=true;
+            for(const auto& p:parameters) {
+                const auto name=p.get_name();
+                const bool metadata=name=="record.control_source" || name=="record.instruction_id" || name=="record.note";
+                const bool matched=name=="localization.matched_pose" || name=="localization.matched_rmse" || name=="localization.matched_overlap";
+                if(metadata && p.get_type()!=rclcpp::ParameterType::PARAMETER_STRING) {
+                    result.successful=false; result.reason="Recording labels must be strings"; break;
+                }
+                if(name=="record.sample_every_n" && (p.get_type()!=rclcpp::ParameterType::PARAMETER_INTEGER || p.as_int()<1)) {
+                    result.successful=false; result.reason="record.sample_every_n must be a positive integer"; break;
+                }
+                if(!metadata && !matched && name!="record.sample_every_n") {
+                    result.successful=false; result.reason="This parameter is startup-only; change YAML/launch arguments and restart"; break;
+                }
+            }
+            return result;
+        });
 
         RCLCPP_INFO(this->get_logger(), "Node init finished.");
     }

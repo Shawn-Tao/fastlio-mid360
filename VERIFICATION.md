@@ -3,6 +3,22 @@
 日常指令在 [主 README 开头](README.md)、[脚本说明开头](scripts/README.md) 和
 [Jetson 指南开头](doc/JETSON_DEPLOY.md)；本文件只记录验证范围，不替代启动指南。
 
+## TF QoS 初始化与参数保护顺序修复（2026-09-17）
+
+- 针对实机日志中 `qos_overrides./tf.publisher.durability` 被 startup-only 回调
+  拒绝并导致 FAST-LIO abort 的问题，将参数保护回调注册移至构造函数末尾，
+  位于 TF、发布器、订阅器、定时器和服务创建之后、Node init finished 日志之前。
+- 参数保护回调内容与修复前逐字一致；不放开运行时 QoS、物理参数或跟踪门限修改，
+  不修改雷达 IP JSON、SDK、建图/定位配置或算法。
+- 新增主机源码顺序回归，确认修复前源码会失败、修复后通过。
+  全部 53 项主机 Python 回归通过，扩展 smoke 的 Python 语法及 git diff --check 通过。
+- 真实 ROS 无硬件 smoke 已增加建图/定位两种模式的 TF 发布器和只读 QoS 参数检查，
+  验证在线修改启动参数、TF QoS 和非法采样步长被拒绝且值不变；验证录制标签/
+  合法采样步长仍可修改，并恢复测试前值。仅操作测试创建的隔离节点，不写参考地图。
+- 本主机仍无 ROS Humble，Docker WSL integration 不可用，未执行真实 ROS 编译
+  或上述扩展 smoke。同步源码后须在 Jetson/可用容器中重新 build，再执行 scripts/test.sh；
+  旧 install 和历史 ZIP 不包含此次修复，不能仅重启旧二进制。
+
 ## 统一交互环境入口（2026-09-17）
 
 - 新增 `source scripts/env.sh`，自动选择 Bash/Zsh 的现有 setenv 实现，加载

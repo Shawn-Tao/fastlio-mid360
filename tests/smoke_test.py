@@ -2,6 +2,7 @@
 """Start FAST-LIO in mapping and localization; verify graph/services/PCD load.
 
 No LiDAR, bag recording, synthetic sensor data, or reference-map writes.
+Checks TF/QoS initialization and the runtime parameter guard in both modes.
 This is a startup test, not a mapping-accuracy test.
 """
 import os
@@ -17,8 +18,80 @@ from sensor_msgs.msg import PointCloud2
 from std_srvs.srv import Trigger
 from std_msgs.msg import String
 from nav_msgs.msg import Odometry
+from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
+from rcl_interfaces.srv import DescribeParameters, GetParameters, SetParameters
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def parameter_request(node, service_type, suffix, request):
+    name = '/laser_mapping/' + suffix
+    client = node.create_client(service_type, name)
+    try:
+        assert client.wait_for_service(timeout_sec=5), f'{name} unavailable'
+        future = client.call_async(request)
+        rclpy.spin_until_future_complete(node, future, timeout_sec=5)
+        assert future.done() and future.result() is not None, f'{name} timed out'
+        return future.result()
+    finally:
+        node.destroy_client(client)
+
+
+def check_runtime_parameter_guard(node):
+    # All writes target this smoke test's isolated, hardware-free child node.
+    tf_publishers = node.get_publishers_info_by_topic('/tf')
+    assert any(info.node_name == 'laser_mapping' and info.topic_type == 'tf2_msgs/msg/TFMessage'
+               for info in tf_publishers), 'FAST-LIO TF publisher unavailable'
+    tf_qos = 'qos_overrides./tf.publisher.durability'
+    names = [tf_qos, 'tracking.min_ratio', 'record.note', 'record.sample_every_n']
+    original = parameter_request(node, GetParameters, 'get_parameters',
+                                 GetParameters.Request(names=names)).values
+    assert len(original) == len(names), original
+    assert original[0].type == ParameterType.PARAMETER_STRING and original[0].string_value, original[0]
+    assert original[1].type == ParameterType.PARAMETER_DOUBLE, original[1]
+    assert original[2].type == ParameterType.PARAMETER_STRING, original[2]
+    assert original[3].type == ParameterType.PARAMETER_INTEGER, original[3]
+    descriptors = parameter_request(node, DescribeParameters, 'describe_parameters',
+                                    DescribeParameters.Request(names=[tf_qos])).descriptors
+    assert len(descriptors) == 1 and descriptors[0].read_only, 'TF QoS must remain read-only'
+
+    forbidden = [
+        Parameter(name=names[1], value=ParameterValue(
+            type=ParameterType.PARAMETER_DOUBLE, double_value=original[1].double_value + 0.01)),
+        Parameter(name=tf_qos, value=ParameterValue(
+            type=ParameterType.PARAMETER_STRING,
+            string_value='volatile' if original[0].string_value == 'transient_local' else 'transient_local')),
+        Parameter(name=names[3], value=ParameterValue(
+            type=ParameterType.PARAMETER_INTEGER, integer_value=0)),
+    ]
+    results = parameter_request(node, SetParameters, 'set_parameters',
+                                SetParameters.Request(parameters=forbidden)).results
+    assert len(results) == 3 and all(not result.successful for result in results), results
+    assert 'startup-only' in results[0].reason, results[0]
+    assert 'positive integer' in results[2].reason, results[2]
+    unchanged = parameter_request(node, GetParameters, 'get_parameters',
+                                  GetParameters.Request(names=names)).values
+    assert list(unchanged) == list(original), 'Rejected writes changed parameters'
+
+    allowed = [
+        Parameter(name=names[2], value=ParameterValue(
+            type=ParameterType.PARAMETER_STRING, string_value='smoke_parameter_guard')),
+        Parameter(name=names[3], value=ParameterValue(
+            type=ParameterType.PARAMETER_INTEGER, integer_value=original[3].integer_value + 1)),
+    ]
+    try:
+        results = parameter_request(node, SetParameters, 'set_parameters',
+                                    SetParameters.Request(parameters=allowed)).results
+        assert len(results) == 2 and all(result.successful for result in results), results
+        updated = parameter_request(node, GetParameters, 'get_parameters',
+                                    GetParameters.Request(names=names[2:])).values
+        assert len(updated) == 2 and updated[0].string_value == 'smoke_parameter_guard', updated
+        assert updated[1].integer_value == original[3].integer_value + 1, updated
+    finally:
+        restore = [Parameter(name=name, value=value) for name, value in zip(names[2:], original[2:])]
+        results = parameter_request(node, SetParameters, 'set_parameters',
+                                    SetParameters.Request(parameters=restore)).results
+        assert len(results) == 2 and all(result.successful for result in results), results
 
 
 def stop_process(process):
@@ -111,6 +184,7 @@ def check_mode(node, mode, lidar_config=None):
                 topics = dict(node.get_topic_names_and_types())
                 if ('/map_save' in services and '/start_path_record' in services
                         and '/stop_path_record' in services and '/Odometry' in topics
+                        and '/tf' in topics and 'Node init finished.' in log_path.read_text()
                         and '/tracking/status' in topics and '/map_save/status' in topics
                         and (mode != 'localization' or (reference and statuses))
                         and (not lidar_config or 'Init lds lidar success!' in log_path.read_text())):
@@ -122,6 +196,7 @@ def check_mode(node, mode, lidar_config=None):
             imu = node.get_subscriptions_info_by_topic('/livox/imu')
             assert any(info.topic_type == 'livox_ros_driver2/msg/CustomMsg' for info in lidar), lidar
             assert any(info.topic_type == 'sensor_msgs/msg/Imu' for info in imu), imu
+            check_runtime_parameter_guard(node)
             if mode == 'mapping':
                 client = node.create_client(Trigger, '/map_save')
                 try:
@@ -162,7 +237,7 @@ def check_mode(node, mode, lidar_config=None):
             assert process.poll() is None, f'{mode} exited after startup'
             if mode == 'localization':
                 assert not odometry, 'Waiting startup gate emitted odometry'
-            print(f'[PASS] {mode}: topics, subscriptions and services'
+            print(f'[PASS] {mode}: topics, subscriptions, services, TF/QoS and runtime parameter guard'
                   + ('; explicit relative local JSON initialized loopback SDK' if lidar_config else '')
                   + ('; reference PCD loaded and map_save is read-only' if reference else ''), flush=True)
         finally:

@@ -4,6 +4,7 @@ import ast
 import importlib.util
 import json
 from pathlib import Path
+import re
 import unittest
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
@@ -43,6 +44,29 @@ class WorkspaceTests(unittest.TestCase):
         self.assertGreater(mapping['pcd_save']['max_points'], 0)
         self.assertGreater(mapping['record']['flush_interval_sec'], 0)
         self.assertTrue(self.config('mid360_localization.yaml')['localization']['relocalization']['gravity_alignment'])
+
+    def test_runtime_parameter_guard_follows_ros_initialization(self):
+        # Source-order contract only; real TF/QoS behavior is tested by smoke_test.py.
+        source = (FAST / 'src/laserMapping.cpp').read_text()
+        constructor = source[source.index('LaserMappingNode(const'):source.index('~LaserMappingNode()')]
+        self.assertEqual(constructor.count('add_on_set_parameters_callback'), 1)
+        guard = constructor.index('parameter_callback_=this->add_on_set_parameters_callback')
+        tf = constructor.index('tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>')
+        self.assertLess(tf, guard, 'TF declares QoS parameters before the runtime guard is installed')
+        components = re.finditer(
+            r'this->(?:declare_parameter|create_publisher|create_subscription|create_service|create_wall_timer)\b'
+            r'|rclcpp::create_timer\b', constructor)
+        for component in components:
+            self.assertLess(component.start(), guard, component.group())
+        self.assertLess(guard, constructor.index('"Node init finished."'))
+        policy = constructor[guard:constructor.index('"Node init finished."')]
+        for name in ('record.control_source', 'record.instruction_id', 'record.note',
+                     'record.sample_every_n', 'localization.matched_pose',
+                     'localization.matched_rmse', 'localization.matched_overlap'):
+            self.assertIn(f'"{name}"', policy)
+        self.assertIn('result.successful=false', policy)
+        self.assertIn('This parameter is startup-only', policy)
+        self.assertNotIn('qos_overrides.', policy, 'Do not broadly whitelist runtime QoS changes')
 
     def test_topics_and_custom_message(self):
         mapping = self.config('mid360.yaml')
