@@ -15,6 +15,8 @@ import rclpy
 from rclpy.qos import QoSProfile, DurabilityPolicy
 from sensor_msgs.msg import PointCloud2
 from std_srvs.srv import Trigger
+from std_msgs.msg import String
+from nav_msgs.msg import Odometry
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -82,9 +84,13 @@ def check_mode(node, mode, lidar_config=None):
     log_path = log_dir / f'{mode}.log'
     reference = []
     subscription = None
+    status_subscription = odometry_subscription = None
+    statuses, odometry = [], []
     if mode == 'localization':
         qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         subscription = node.create_subscription(PointCloud2, '/reference_map', reference.append, qos)
+        status_subscription = node.create_subscription(String, '/localization/status', statuses.append, qos)
+        odometry_subscription = node.create_subscription(Odometry, '/Odometry', odometry.append, 10)
     with log_path.open('w') as output:
         arguments = ['map_name:=smoke_test']
         if mode == 'localization':
@@ -105,7 +111,7 @@ def check_mode(node, mode, lidar_config=None):
                 topics = dict(node.get_topic_names_and_types())
                 if ('/map_save' in services and '/start_path_record' in services
                         and '/stop_path_record' in services and '/Odometry' in topics
-                        and (mode != 'localization' or reference)
+                        and (mode != 'localization' or (reference and statuses))
                         and (not lidar_config or 'Init lds lidar success!' in log_path.read_text())):
                     break
             else:
@@ -127,6 +133,18 @@ def check_mode(node, mode, lidar_config=None):
                     node.destroy_client(client)
             if mode == 'localization':
                 assert reference[0].width * reference[0].height > 0, 'Empty reference PCD'
+                import json
+                assert json.loads(statuses[-1].data)['state'] == 'waiting_for_imu', statuses[-1]
+                assert not odometry, 'Uninitialized localization published odometry'
+                record = node.create_client(Trigger, '/start_path_record')
+                try:
+                    assert record.wait_for_service(timeout_sec=5)
+                    future = record.call_async(Trigger.Request())
+                    rclpy.spin_until_future_complete(node, future, timeout_sec=5)
+                    assert future.done() and not future.result().success, 'Uninitialized localization allowed recording'
+                    assert 'not ready' in future.result().message, future.result()
+                finally:
+                    node.destroy_client(record)
                 client = node.create_client(Trigger, '/map_save')
                 try:
                     assert client.wait_for_service(timeout_sec=5), 'map_save unavailable'
@@ -141,6 +159,8 @@ def check_mode(node, mode, lidar_config=None):
             for _ in range(5):
                 rclpy.spin_once(node, timeout_sec=0.2)
             assert process.poll() is None, f'{mode} exited after startup'
+            if mode == 'localization':
+                assert not odometry, 'Waiting startup gate emitted odometry'
             print(f'[PASS] {mode}: topics, subscriptions and services'
                   + ('; explicit relative local JSON initialized loopback SDK' if lidar_config else '')
                   + ('; reference PCD loaded and map_save is read-only' if reference else ''), flush=True)
@@ -148,6 +168,10 @@ def check_mode(node, mode, lidar_config=None):
             forced = stop_process(process)
             if subscription is not None:
                 node.destroy_subscription(subscription)
+            if status_subscription is not None:
+                node.destroy_subscription(status_subscription)
+            if odometry_subscription is not None:
+                node.destroy_subscription(odometry_subscription)
     assert not forced, f'{mode} required forced cleanup; see {log_path}'
     assert 'process has finished cleanly' in log_path.read_text(), f'{mode} did not stop cleanly on SIGINT; see {log_path}'
     # Let DDS remove the first process's endpoints before starting the next one.

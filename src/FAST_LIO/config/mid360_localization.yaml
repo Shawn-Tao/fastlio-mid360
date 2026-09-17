@@ -8,9 +8,9 @@
         #   1. build the reference map once with mid360.yaml (SLAM mode),
         #      maps are saved under workspace pcd_map/ (see README),
         #   2. pass map_path:=/path/to/scene.pcd explicitly at launch,
-        #   3. start every run from the SAME floor mark with the SAME robot
-        #      heading as during mapping -> initial_pose stays [0,0,0,0].
-        #      (If the heading differs, measure yaw and set it here.)
+        #   3. keep stationary near the mapping start (default <=3 m), wait for
+        #      /localization/status ready. Position + full yaw are searched.
+        #      Same floor / upright mounting: roll and pitch are NOT searched.
         # =====================================================================
         feature_extract_enable: false
         point_filter_num: 3
@@ -36,6 +36,32 @@
             map_path: ""
             map_voxel_size: 0.1
             initial_pose: [0.0, 0.0, 0.0, 0.0]  # x, y, z, yaw(rad) in map frame
+            relocalization:
+                enabled: true
+                center: [0.0, 0.0, 0.0]   # map <- IMU, NOT the PCD centroid
+                radius: 3.0                # strict 3-D displacement from center, metres
+                z_range: 0.5               # additionally constrain vertical displacement
+                xy_step: 0.75
+                z_step: 0.5
+                yaw_step_deg: 15.0         # always search the full 360 degrees
+                voxel_size: 0.25
+                scan_range: 20.0
+                coarse_distance: 1.0
+                icp_distance: 0.75
+                inlier_distance: 0.35
+                min_overlap: 0.65
+                max_rmse: 0.18
+                ambiguity_margin: 0.02     # reject similarly good distinct poses
+                max_seconds: 20.0          # timed-out searches never initialize tracking
+                min_points: 120
+                coarse_points: 256
+                max_points: 6000
+                candidates: 24
+                iterations: 50
+                accumulation_frames: 15    # about 1.5 s at 10 Hz, AFTER IMU init
+                confirmation_frames: 3     # fresh frames, not the search snapshot
+                stationary_gyro: 0.08      # rad/s; motion check is only a heuristic
+                stationary_acc_fraction: 0.05
 
         # ---- GT system: trajectory recording (same defaults as mid360.yaml) ----
         record:

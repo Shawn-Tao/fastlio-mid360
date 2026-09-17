@@ -41,6 +41,8 @@ source scripts/setenv.bash             # Zsh：source scripts/setenv.zsh
 
 如尚未装 ROS，先按 Humble 的官方安装流程安装，或用下面 Docker 分支。
 本机默认检测到 `/opt/ros/humble/setup.bash` 后就直接编译，不再强制要求原电脑容器。
+`scripts/build.sh` 只编译源码，不需要 PCD。PCD 在第 4 节定位启动时通过
+`map_path:=...` 选择，切换地图不需要重新编译。
 `FASTLIO_NATIVE=1` 显式锁定本机，`=0` 锁定 Docker。
 内存紧张时 `FASTLIO_BUILD_JOBS=1`；构建日志应明确显示
 `target=aarch64`、`livox-sdk-arm`。无需改 CMake 或手动设置 SDK 的 LD_LIBRARY_PATH。
@@ -73,7 +75,7 @@ ip -br addr
 bash scripts/init_local_config.sh --name jetson --host-ip 192.168.123.18 --lidar-ip 192.168.123.114
 bash scripts/check_network.sh config/local/MID360.jetson.local.json
 bash scripts/run.sh mapping lidar_config:=config/local/MID360.jetson.local.json \
-  map_name:=lab_a rviz:=false record_bag:=true
+  map_name:=lab_a --no-rviz record_bag:=true
 ```
 
 网络检查只读，不给网卡写固定地址、不修改路由或防火墙；旧
@@ -94,17 +96,24 @@ bash scripts/run.sh mapping lidar_config:=config/local/MID360.jetson.local.json 
 ```bash
 # 换成实际地图名；不传 map_path 会在启动 driver / 节点前报错
 bash scripts/run.sh localization lidar_config:=config/local/MID360.jetson.local.json \
-  map_path:=pcd_map/实际地图.pcd rviz:=false record_bag:=true
+  map_path:=pcd_map/实际地图.pcd search_radius:=3.0 --no-rviz record_bag:=true
 ```
 
 必须给出本运行环境可读的实际 `.pcd` 路径。脚本固定 CWD 为工作区根目录，
 可用上述相对路径；Docker 中的绝对路径必须是容器路径。
-定位只读地图，不保存建图 PCD。设置该场景对应的 `localization.initial_pose`
-（x,y,z,yaw，yaw 单位 rad）；可通过 `/initialpose` 更新，不能把换地图当成自动重定位。
+定位只读地图，不保存建图 PCD。默认启用原点附近启动重定位：保持静止，
+在建图起点 3 m 内搜索位置和完整朝向，等待 `/localization/status` ready 后再移动。
+可用 `search_radius:=3.0` 覆盖半径；高度默认限制 ±0.5 m，不搜索 roll/pitch。
+失败不发布定位里程计，可调用 `/relocalize` 重试。结果参数是
+`localization.matched_pose`（x,y,z,yaw，米/rad）。详见 [启动重定位](STARTUP_RELOCALIZATION.md)。
+显式 `relocalize:=false` 才使用 YAML `localization.initial_pose` 和 `/initialpose` 手动播种。
 不要同时启动建图与定位两个 driver。
 
 建议 Jetson 不开 RViz，PC 上使用同一 `ROS_DOMAIN_ID`，按
 [DDS 说明](../dds_config/README.md) 选择 RMW、通信网卡及可选 peers。
+启动脚本默认不启动 RViz2；Jetson 本机需要 GUI 时追加 `--rviz`，显式关闭用
+`--no-rviz`（也兼容 `rviz:=true/false`），可用 `scripts/run_localization_local.sh --help`
+查看选项。`--rviz` 只控制运行时启动，不会安装 RViz2；需要已安装 RViz2 和可用显示环境。
 雷达 UDP 收包与 PC↔Jetson DDS 是两个独立问题。
 PC RViz 使用 `camera_init` Fixed Frame；参考地图订阅 `/reference_map`，
 Durability 设 Transient Local，扫描看 `/cloud_registered`。

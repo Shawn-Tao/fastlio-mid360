@@ -24,6 +24,8 @@ bash docker/run.sh
 
 固定挂载目标 `/workspace/fastlio-mid360_space`，源目录可以放在任意用户路径。
 编译/运行脚本支持旧容器的其他挂载布局，按 bind mount 自动解析。
+`docker/build.sh` 构建 ROS 环境镜像，`scripts/build.sh` 编译工程源码；两者均不需要
+传入 PCD。定位启动时才指定 `map_path:=...`，换地图无需重新编译。
 存在多个匹配容器时必须指定 `FASTLIO_CONTAINER=名字或ID`；不会自动挑一个。
 `docker/run.sh` 不删除或替换已有容器，名字冲突且挂载/网络不一致时会报错。
 改变镜像或 GUI 配置时请用新的容器名。
@@ -37,8 +39,12 @@ bash docker/run.sh
 ```bash
 FASTLIO_INSTALL_RVIZ=1 bash docker/build.sh
 FASTLIO_CONTAINER=fastlio-mid360-gui FASTLIO_DOCKER_GUI=1 bash docker/run.sh --detach
-FASTLIO_CONTAINER=fastlio-mid360-gui bash scripts/run.sh mapping map_name:=lab_a rviz:=true
+FASTLIO_CONTAINER=fastlio-mid360-gui bash scripts/run.sh mapping map_name:=lab_a --rviz
 ```
+
+运行脚本默认不启动 RViz2，`--rviz` 开启，`--no-rviz` 明确关闭；
+`rviz:=true/false` 仍兼容。`FASTLIO_INSTALL_RVIZ=1` 控制镜像是否安装 RViz2，
+与运行时是否启动它是两个独立开关，`--rviz` 本身不会安装软件。
 
 需要有效 `DISPLAY`、X11 socket 与目标显示服务器授权；脚本不调用 `xhost` 或修改授权。
 Wayland / 无桌面环境建议 Jetson 只运行节点、PC 通过 DDS 使用 RViz。

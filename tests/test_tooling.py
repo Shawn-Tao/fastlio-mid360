@@ -54,6 +54,41 @@ class ToolingTests(unittest.TestCase):
         args = json.loads(result.stdout.splitlines()[-1])
         self.assertEqual(args[args.index('-w') + 1], f'/nested space/{ROOT.name}')
 
+    def test_run_help_does_not_require_ros_docker_or_pcd(self):
+        for script in ('scripts/run.sh', 'scripts/run_mapping_local.sh',
+                       'scripts/run_localization_local.sh'):
+            result = self.run_script(script, '--help', FASTLIO_NATIVE='0', FAKE_DOCKER_IDS='')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('--rviz', result.stdout)
+            self.assertIn('--no-rviz', result.stdout)
+            self.assertIn('no PCD required', result.stdout)
+            self.assertNotIn('[fastlio] container=', result.stdout)
+
+    def test_run_rviz_flags_and_parameter_boundaries(self):
+        argument = 'map_path:=pcd_map/场景 A.pcd'
+        cases = [
+            ('scripts/run_localization_local.sh', (argument,), 'localization', []),
+            ('scripts/run_localization_local.sh', ('--rviz', argument), 'localization', ['rviz:=true']),
+            ('scripts/run.sh', ('localization', argument, '--no-rviz'), 'localization', ['rviz:=false']),
+            ('scripts/run_mapping_local.sh', ('--rviz',), 'mapping', ['rviz:=true']),
+            ('scripts/run.sh', ('--rviz',), 'mapping', ['rviz:=true']),
+            ('scripts/run.sh', ('replay', '--rviz'), 'replay', ['rviz:=true']),
+            ('scripts/run_localization_local.sh', (argument, 'rviz:=true'), 'localization', ['rviz:=true']),
+            ('scripts/run_localization_local.sh', (argument, '--rviz', '--no-rviz'), 'localization', ['rviz:=false']),
+        ]
+        for script, parameters, mode, expected in cases:
+            result = self.run_script(script, *parameters, FASTLIO_NATIVE='0')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            args = json.loads(result.stdout.splitlines()[-1])
+            marker = next(i for i, value in enumerate(args) if value.endswith('/scripts/run.sh'))
+            self.assertEqual(args[marker + 1], mode)
+            tail = args[marker + 2:]
+            self.assertEqual([value for value in tail if value.startswith('rviz:=')], expected)
+            if argument in parameters:
+                self.assertIn(argument, tail)
+            self.assertNotIn('--rviz', tail)
+            self.assertNotIn('--no-rviz', tail)
+
     def test_ambiguous_missing_and_explicit_container(self):
         for changes in ({'FAKE_DOCKER_IDS': ''},
                         {'FAKE_DOCKER_IDS': 'first\nsecond'},

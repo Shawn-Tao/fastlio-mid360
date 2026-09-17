@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 import shlex
 import re
+import math
 import yaml
 
 from ament_index_python.packages import get_package_share_directory
@@ -54,7 +55,19 @@ def _launch(context):
         if args['map_output']:
             raise ValueError('map_output cannot be used in localization: reference maps are read-only.')
         params['localization.map_path'] = str(reference)
-    else:
+        if args['relocalize'] != 'auto':
+            params['localization.relocalization.enabled'] = _boolean(context, 'relocalize')
+        if args['search_radius']:
+            try:
+                radius = float(args['search_radius'])
+            except ValueError as error:
+                raise ValueError('search_radius must be a finite positive number in metres') from error
+            if not math.isfinite(radius) or radius <= 0:
+                raise ValueError('search_radius must be a finite positive number in metres')
+            params['localization.relocalization.radius'] = radius
+    elif args['search_radius'] or args['relocalize'] != 'auto':
+        raise ValueError('relocalize and search_radius are localization-only arguments')
+    if not localization:
         if not re.fullmatch(r'[\w-]+', args['map_name']):
             raise ValueError('map_name must use letters, digits, underscores or hyphens (no .pcd extension or path separators).')
         params['map_name'] = args['map_name']
@@ -112,6 +125,8 @@ def generate_launch_description():
         'config_file': ('', 'YAML basename in fast_lio/config, or absolute/CWD-relative path such as config/local/scene.local.yaml'),
         'lidar_config': ('', 'Absolute/CWD-relative Livox JSON path; local copies are explicit opt-in, factory MID360.json remains the default'),
         'map_path': ('', 'REQUIRED for localization, including replay of a localization YAML; existing reference .pcd path'),
+        'relocalize': ('auto', 'auto uses YAML/default enabled; true performs bounded startup matching, false retains manual initial_pose'),
+        'search_radius': ('', 'Override startup position search radius in metres around YAML relocalization.center (default map origin, 3 m)'),
         'map_name': ('map', 'Scene name for mapping output: timestamp_<name>.pcd; no extension or path separators'),
         'map_dir': ('', 'Optional mapping output directory; default is pcd_map/ beside workspace src/'),
         'map_output': ('', 'Advanced override: new full .pcd output path; shared by /map_save and Ctrl+C'),

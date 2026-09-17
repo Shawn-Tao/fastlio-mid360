@@ -49,6 +49,7 @@
 #include <so3_math.h>
 #include <rclcpp/rclcpp.hpp>
 #include <Eigen/Core>
+#include <Eigen/Geometry>
 #include "IMU_Processing.hpp"
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
@@ -69,6 +70,8 @@
 #include "preprocess.h"
 #include <ikd-Tree/ikd_Tree.h>
 #include "map_storage.hpp"
+#include "startup_relocalization.hpp"
+#include <std_msgs/msg/string.hpp>
 
 #define INIT_TIME           (0.1)
 #define LASER_POINT_COV     (0.001)
@@ -831,6 +834,7 @@ public:
         this->declare_parameter<string>("localization.map_path", "");
         this->declare_parameter<double>("localization.map_voxel_size", 0.1);
         this->declare_parameter<vector<double>>("localization.initial_pose", vector<double>());
+        declare_relocalization_parameters();
         this->declare_parameter<int>("record.sample_every_n", 1);
         this->declare_parameter<bool>("record.republish_saved", true);
         this->declare_parameter<string>("record.control_source", "");
@@ -880,6 +884,7 @@ public:
         this->get_parameter_or<string>("localization.map_path", loc_map_path, string(""));
         this->get_parameter_or<double>("localization.map_voxel_size", loc_map_voxel_size, 0.1);
         this->get_parameter_or<vector<double>>("localization.initial_pose", loc_initial_pose, vector<double>());
+        read_relocalization_parameters();
         this->get_parameter_or<int>("record.sample_every_n", record_sample_every_n_, 1);
         this->get_parameter_or<bool>("record.republish_saved", record_republish_saved_, true);
         this->get_parameter_or<bool>("preprocess.operator_filter_en", p_pre->operator_filter_en, false);
@@ -957,6 +962,18 @@ public:
             }
             ikdtree.set_downsample_param(filter_size_map_min);
             ikdtree.Build(map_cloud->points);
+            if (relocalization_enabled_) {
+                std::vector<fastlio_relocalization::Point> reference;
+                reference.reserve(map_cloud->size());
+                for (const auto& p : *map_cloud) reference.push_back({p.x,p.y,p.z});
+                startup_ = std::make_unique<fastlio_relocalization::Startup>(
+                    std::make_shared<fastlio_relocalization::Matcher>(reference,relocalization_options_),
+                    accumulation_frames_,confirmation_frames_);
+                RCLCPP_INFO(this->get_logger(),
+                    "Startup relocalization: center [%.2f, %.2f, %.2f], radius %.2f m, height +/-%.2f m, heading 360 deg. Keep stationary until status=ready.",
+                    relocalization_options_.center.x,relocalization_options_.center.y,relocalization_options_.center.z,
+                    relocalization_options_.radius,relocalization_options_.z_range);
+            }
             RCLCPP_INFO(this->get_logger(),
                 "Localization mode: reference map loaded from '%s' (%zu points after %.2f m voxel filter).",
                 loc_map_path.c_str(), map_cloud->points.size(), loc_map_voxel_size);
@@ -972,7 +989,7 @@ public:
             map_msg.header.frame_id = "camera_init";
             pubReferenceMap_->publish(map_msg);
 
-            if (loc_initial_pose.size() >= 4)
+            if (!relocalization_enabled_ && loc_initial_pose.size() >= 4)
             {
                 double ix = loc_initial_pose[0], iy = loc_initial_pose[1];
                 double iz = loc_initial_pose[2], iyaw = loc_initial_pose[3];
@@ -984,7 +1001,7 @@ public:
                     "Localization mode: initial pose set to [x=%.3f, y=%.3f, z=%.3f, yaw=%.3f rad] in map frame.",
                     ix, iy, iz, iyaw);
             }
-            else
+            else if (!relocalization_enabled_)
             {
                 RCLCPP_WARN(this->get_logger(),
                     "Localization mode: localization.initial_pose not set (or < 4 values), starting at map origin [0,0,0,0].");
@@ -1027,6 +1044,15 @@ public:
         pubLaserCloudMap_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/Laser_map", 20);
         pubOdomAftMapped_ = this->create_publisher<nav_msgs::msg::Odometry>("/Odometry", 20);
         pubPath_ = this->create_publisher<nav_msgs::msg::Path>("/path", 20);
+        if (localization_mode) {
+            pubLocalizationStatus_ = this->create_publisher<std_msgs::msg::String>(
+                "/localization/status",rclcpp::QoS(1).transient_local());
+            pubMatchedPose_ = this->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
+                "/localization/initial_pose",rclcpp::QoS(1).transient_local());
+            publish_localization_status();
+            relocalize_srv_ = this->create_service<std_srvs::srv::Trigger>("relocalize",
+                std::bind(&LaserMappingNode::relocalize_callback,this,std::placeholders::_1,std::placeholders::_2));
+        }
         tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
         //------------------------------------------------------------------------------------------------------
@@ -1046,12 +1072,144 @@ public:
 
     ~LaserMappingNode()
     {
+        startup_.reset(); // cancel/join the bounded search before other members die
         fout_out.close();
         fout_pre.close();
         fclose(fp);
     }
 
 private:
+    void declare_relocalization_parameters() {
+        const std::string prefix="localization.relocalization.";
+        this->declare_parameter<bool>(prefix+"enabled",true);
+        this->declare_parameter<vector<double>>(prefix+"center",vector<double>{0.0,0.0,0.0});
+        this->declare_parameter<vector<double>>("localization.matched_pose",vector<double>());
+        this->declare_parameter<double>("localization.matched_rmse",-1.0);
+        this->declare_parameter<double>("localization.matched_overlap",0.0);
+        for (const auto& p : std::vector<std::pair<std::string,double>>{
+            {"radius",3.0},{"z_range",0.5},{"xy_step",0.75},{"z_step",0.5},{"yaw_step_deg",15.0},
+            {"voxel_size",0.25},{"scan_range",20.0},{"coarse_distance",1.0},{"icp_distance",0.75},
+            {"inlier_distance",0.35},{"min_overlap",0.65},{"max_rmse",0.18},{"ambiguity_margin",0.02},
+            {"max_seconds",20.0},{"stationary_gyro",0.08},{"stationary_acc_fraction",0.05}})
+            this->declare_parameter<double>(prefix+p.first,p.second);
+        for (const auto& p : std::vector<std::pair<std::string,int>>{
+            {"min_points",120},{"coarse_points",256},{"max_points",6000},{"candidates",24},
+            {"iterations",50},{"accumulation_frames",15},{"confirmation_frames",3}})
+            this->declare_parameter<int>(prefix+p.first,p.second);
+    }
+    void read_relocalization_parameters() {
+        const std::string prefix="localization.relocalization.";
+        relocalization_enabled_=this->get_parameter(prefix+"enabled").as_bool();
+        if (!localization_mode || !relocalization_enabled_) return;
+        auto center=this->get_parameter(prefix+"center").as_double_array();
+        if (center.size()!=3) throw std::invalid_argument("Relocalization center needs exactly x,y,z");
+        relocalization_options_.center={center[0],center[1],center[2]};
+        auto number=[&](const char* key) { return this->get_parameter(prefix+key).as_double(); };
+        auto integer=[&](const char* key) { return static_cast<int>(this->get_parameter(prefix+key).as_int()); };
+        auto& o=relocalization_options_;
+        o.radius=number("radius"); o.z_range=number("z_range"); o.xy_step=number("xy_step");
+        o.z_step=number("z_step"); o.yaw_step_deg=number("yaw_step_deg"); o.voxel_size=number("voxel_size");
+        o.scan_range=number("scan_range"); o.coarse_distance=number("coarse_distance");
+        o.icp_distance=number("icp_distance"); o.inlier_distance=number("inlier_distance");
+        o.min_overlap=number("min_overlap"); o.max_rmse=number("max_rmse");
+        o.ambiguity_margin=number("ambiguity_margin"); o.max_seconds=number("max_seconds");
+        o.min_points=integer("min_points"); o.coarse_points=integer("coarse_points");
+        o.max_points=integer("max_points"); o.candidates=integer("candidates"); o.iterations=integer("iterations");
+        accumulation_frames_=integer("accumulation_frames"); confirmation_frames_=integer("confirmation_frames");
+        stationary_gyro_=number("stationary_gyro"); stationary_acc_fraction_=number("stationary_acc_fraction");
+        o.validate();
+        if (!std::isfinite(stationary_gyro_) || stationary_gyro_<=0 ||
+            !std::isfinite(stationary_acc_fraction_) || stationary_acc_fraction_<=0)
+            throw std::invalid_argument("Stationary detection thresholds must be finite and positive");
+    }
+    void publish_localization_status() {
+        if (!pubLocalizationStatus_) return;
+        const std::string state=startup_ ? startup_->state() : "manual";
+        const std::string detail=startup_ ? startup_->detail() : "manual_initial_pose";
+        if (state+detail==last_localization_status_) return;
+        last_localization_status_=state+detail;
+        std_msgs::msg::String message;
+        message.data="{\"state\":\""+state+"\",\"detail\":\""+detail+"\"}";
+        pubLocalizationStatus_->publish(message);
+        if (state=="failed") RCLCPP_WARN(this->get_logger(),
+            "Startup relocalization failed: %s. No odometry/trajectory will be published. Keep stationary, verify map/range, then call /relocalize.",detail.c_str());
+        else RCLCPP_INFO(this->get_logger(),"Localization status: %s (%s)",state.c_str(),detail.c_str());
+    }
+    bool startup_stationary() {
+        if (Measures.imu.empty()) return false;
+        for (const auto& imu : Measures.imu) {
+            V3D gyro(imu->angular_velocity.x,imu->angular_velocity.y,imu->angular_velocity.z);
+            V3D acc(imu->linear_acceleration.x,imu->linear_acceleration.y,imu->linear_acceleration.z);
+            if (!gyro.allFinite() || !acc.allFinite() || acc.norm()<1e-6 ||
+                gyro.norm()>stationary_gyro_) return false;
+            if (!stationary_acc_set_) { stationary_acc_=acc; stationary_acc_set_=true; }
+            if ((acc-stationary_acc_).norm()/stationary_acc_.norm()>stationary_acc_fraction_) {
+                stationary_acc_=acc; return false;
+            }
+        }
+        return true;
+    }
+    void process_startup_relocalization() {
+        std::vector<fastlio_relocalization::Point> frame;
+        if (p_imu->initialized()) {
+            frame.reserve(feats_undistort->size());
+            for (const auto& p : *feats_undistort) {
+                // Engine solves map <- IMU. Do not confuse it with map <- LiDAR.
+                const V3D imu_point=state_point.offset_R_L_I*V3D(p.x,p.y,p.z)+state_point.offset_T_L_I;
+                frame.push_back({imu_point.x(),imu_point.y(),imu_point.z()});
+            }
+        }
+        const bool became_ready=startup_->update(frame,startup_stationary(),p_imu->initialized());
+        if (became_ready) {
+            const auto& result=startup_->result(); const auto& pose=result.pose;
+            state_ikfom seeded=kf.get_x(); const M3D old_rotation=seeded.rot.toRotationMatrix();
+            seeded.pos=V3D(pose.x,pose.y,pose.z);
+            seeded.rot=Eigen::Quaterniond(Eigen::AngleAxisd(pose.yaw,V3D::UnitZ()));
+            const M3D rotation_delta=seeded.rot.toRotationMatrix()*old_rotation.transpose();
+            seeded.grav=S2(rotation_delta*V3D(seeded.grav[0],seeded.grav[1],seeded.grav[2]));
+            seeded.vel=Zero3d;
+            kf.change_x(seeded);
+            auto covariance=kf.get_P();
+            for (int i : {0,1,2,3,4,5,12,13,14}) {
+                covariance.row(i).setZero(); covariance.col(i).setZero(); covariance(i,i)=0.01;
+            }
+            kf.change_P(covariance);
+            p_imu->rotate_world_history(rotation_delta);
+            state_point=seeded; position_last=seeded.pos; path.poses.clear();
+            geometry_msgs::msg::PoseWithCovarianceStamped message;
+            message.header.frame_id="camera_init"; message.header.stamp=get_ros_time(lidar_end_time);
+            message.pose.pose.position.x=pose.x; message.pose.pose.position.y=pose.y; message.pose.pose.position.z=pose.z;
+            message.pose.pose.orientation.z=std::sin(pose.yaw*0.5); message.pose.pose.orientation.w=std::cos(pose.yaw*0.5);
+            for (int i : {0,7,14,21,28,35}) message.pose.covariance[i]=0.01;
+            pubMatchedPose_->publish(message);
+            this->set_parameters({
+                rclcpp::Parameter("localization.matched_pose",vector<double>{pose.x,pose.y,pose.z,pose.yaw}),
+                rclcpp::Parameter("localization.matched_rmse",result.rmse),
+                rclcpp::Parameter("localization.matched_overlap",result.overlap)});
+            RCLCPP_INFO(this->get_logger(),
+                "Startup relocalization READY: initial_pose=[%.4f, %.4f, %.4f, %.6f] (yaw %.2f deg), overlap=%.3f, RMSE=%.3f m, search=%.2f s. Pose is map <- IMU; you may move now.",
+                pose.x,pose.y,pose.z,pose.yaw,pose.yaw*180/fastlio_relocalization::pi,result.overlap,result.rmse,result.seconds);
+        }
+        publish_localization_status();
+    }
+    void relocalize_callback(const std_srvs::srv::Trigger::Request::SharedPtr,
+                            std_srvs::srv::Trigger::Response::SharedPtr response) {
+        if (!startup_) { response->success=false; response->message="Automatic relocalization is disabled."; return; }
+        if (is_recording_) { response->success=false; response->message="Stop trajectory recording before relocalizing."; return; }
+        if (!startup_->reset()) { response->success=false; response->message="Search is busy; wait for matching to finish."; return; }
+        state_ikfom state=kf.get_x(); state.pos=Zero3d; state.vel=Zero3d;
+        state.rot=Eigen::Quaterniond::Identity(); state.bg=Zero3d; state.ba=Zero3d;
+        state.grav=S2(V3D(0,0,-G_m_s2)); kf.change_x(state);
+        auto fresh_covariance=kf.get_P(); fresh_covariance.setIdentity(); kf.change_P(fresh_covariance);
+        p_imu->Reset(); feats_undistort->clear(); path.poses.clear(); stationary_acc_set_=false;
+        this->set_parameters({rclcpp::Parameter("localization.matched_pose",vector<double>()),
+            rclcpp::Parameter("localization.matched_rmse",-1.0),rclcpp::Parameter("localization.matched_overlap",0.0)});
+        { std::lock_guard<std::mutex> lock(mtx_buffer);
+          lidar_buffer.clear(); time_buffer.clear(); imu_buffer.clear(); lidar_pushed=false; }
+        flg_first_scan=true;
+        publish_localization_status();
+        response->success=true; response->message="Relocalization requested. Keep stationary; wait for /localization/status ready.";
+    }
     void timer_callback()
     {
         if(sync_packages(Measures))
@@ -1073,9 +1231,22 @@ private:
             svd_time   = 0;
             t0 = omp_get_wtime();
 
+            if (startup_ && !startup_->ready() && Measures.imu.empty()) return;
+            if (startup_ && !startup_->ready() && !p_imu->initialized() && !startup_stationary()) {
+                p_imu->Reset(); feats_undistort->clear();
+                publish_localization_status();
+                RCLCPP_WARN_THROTTLE(this->get_logger(),*this->get_clock(),3000,
+                    "Keep stationary for IMU initialization and startup relocalization.");
+                return;
+            }
             p_imu->Process(Measures, kf, feats_undistort);
             state_point = kf.get_x();
             pos_lid = state_point.pos + state_point.rot * state_point.offset_T_L_I;
+
+            if (startup_ && !startup_->ready()) {
+                process_startup_relocalization();
+                return; // never run map tracking/publish odometry before acceptance
+            }
 
             if (feats_undistort->empty() || (feats_undistort == NULL))
             {
@@ -1275,6 +1446,11 @@ private:
                 "Received /initialpose while recording: refusing to jump the GT pose. Stop recording first.");
             return;
         }
+        if (startup_) {
+            RCLCPP_WARN(this->get_logger(),
+                "Ignoring /initialpose in automatic startup mode. Use /relocalize, or restart with relocalize:=false for manual seeding.");
+            return;
+        }
         const auto &p = msg->pose.pose.position;
         const auto &q = msg->pose.pose.orientation;
         double yaw = std::atan2(2.0 * (q.w * q.z + q.x * q.y),
@@ -1291,6 +1467,9 @@ private:
 
     void start_path_record_callback(std_srvs::srv::Trigger::Request::SharedPtr req, std_srvs::srv::Trigger::Response::SharedPtr res)    {
         (void)req;
+        if (startup_ && !startup_->ready()) {
+            res->success=false; res->message="Localization is not ready; wait for startup relocalization."; return;
+        }
         if (is_recording_)
         {
             res->success = false;
@@ -1398,6 +1577,17 @@ private:
     }
 
 private:
+    bool relocalization_enabled_=true;
+    fastlio_relocalization::Options relocalization_options_;
+    std::unique_ptr<fastlio_relocalization::Startup> startup_;
+    int accumulation_frames_=15,confirmation_frames_=3;
+    double stationary_gyro_=0.08,stationary_acc_fraction_=0.05;
+    bool stationary_acc_set_=false;
+    V3D stationary_acc_=Zero3d;
+    std::string last_localization_status_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pubLocalizationStatus_;
+    rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pubMatchedPose_;
+    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr relocalize_srv_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pubLaserCloudFull_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pubLaserCloudFull_body_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pubReferenceMap_;

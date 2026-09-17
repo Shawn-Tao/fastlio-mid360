@@ -10,12 +10,23 @@ driver 与 FAST-LIO 已整理为同一 `src/` 下的两个 ament 包。只需 so
 
 在工作区根目录执行：本机已有 Humble 时默认本机运行；否则自动解析 bind mount 进入匹配的运行容器。显式设置 `FASTLIO_CONTAINER` 或 `FASTLIO_NATIVE=0` 可以锁定 Docker。
 
+编译不需要选择 PCD，`build.sh` 只接收 colcon 编译参数；`map_path`、`search_radius`、
+RViz2 等是运行参数，传给启动脚本。两者是独立命令，不要把下一条启动命令的参数
+接在 `build.sh` 后面。RViz2 和 rosbag 均默认关闭。
+
 ```bash
 cd /home/shawntao/workspace/humble_space/fastlio-mid360_space
 bash scripts/build.sh
 bash scripts/test.sh                 # 无雷达：配置、架构、节点启动自检
 bash scripts/check_network.sh        # 实机运行前检查；只读，不修改网卡
-bash scripts/run.sh mapping map_name:=lab_a rviz:=true record_bag:=true
+bash scripts/run.sh mapping map_name:=lab_a
+```
+
+需要可视化时追加 `--rviz`，需要录包时追加 `record_bag:=true`，例如：
+
+```bash
+bash scripts/run.sh mapping map_name:=lab_a --rviz record_bag:=true
+bash scripts/run_localization_local.sh --help
 ```
 
 在**容器内**手动编译、启动：
@@ -80,7 +91,7 @@ fastlio-mid360_space/
 
 原 `fastlio-space` 未修改。原 `livox_space` 的 driver 只修改了 CMake 的默认 ROS2/Humble 配置与 SDK 查找，并新增 `cmake/livox_sdk.cmake`；旧源码、SDK 和编译产物均保留。新工作区的完整配置与原工程独立，不引用原工程的源码或 SDK。`humble_space` 根目录下的 DDS、Docker、文档同步正式版本；旧 scripts 名称仅委托新工作区。
 
-新副本还修正了 FAST-LIO 的退出处理：不再覆盖 rclcpp 自带的异步 SIGINT handler，避免在原 POSIX signal handler 内调用 shutdown() 导致 Ctrl+C 退出卡住。配准、建图与定位算法不变。
+新副本还修正了 FAST-LIO 的退出处理：不再覆盖 rclcpp 自带的异步 SIGINT handler，避免在原 POSIX signal handler 内调用 shutdown() 导致 Ctrl+C 退出卡住。原有建图/持续跟踪主体保留；定位新增原点附近的启动重定位，详见 [启动重定位说明](doc/STARTUP_RELOCALIZATION.md)。
 
 地图管理已统一：有效建图帧只累积一次，不再依赖地图发布定时器来拼接存图数据；`/map_save` 与正常 Ctrl+C 存储同一份地图。旧 `maps/` 内的示例保留用于兼容，不再是建图输出目录。
 
@@ -171,10 +182,17 @@ ros2 launch livox_ros_driver2 msg_MID360_launch.py \
 
 ## 6. 建图、定位与离线重放
 
+所有启动脚本支持 `--rviz` / `--no-rviz`，默认不启动 RViz2；原来的
+`rviz:=true` / `rviz:=false` 保持兼容，多次指定时最后一个选择生效。
+`--help` 可在未安装 ROS / 未启动 Docker 时查看帮助。
+直接使用 `ros2 launch` 时使用 `rviz:=true/false`，不使用脚本的 `--rviz` 选项。
+
 ### 建图
 
 ```bash
-bash scripts/run.sh mapping map_name:=lab_a rviz:=true record_bag:=true
+bash scripts/run.sh mapping map_name:=lab_a
+# 按需开启可视化和录包：
+bash scripts/run.sh mapping map_name:=lab_a --rviz record_bag:=true
 ```
 
 默认 `xfer_format=1`（`livox_ros_driver2/msg/CustomMsg`）、单雷达统一 topic、10 Hz。FAST-LIO 订阅 `/livox/lidar` 与 `/livox/imu`，输出 `/Odometry`、`/path` 等。不能把 driver 改为 `PointCloud2` 而仍沿用 `preprocess.lidar_type=1`。
@@ -210,10 +228,13 @@ pcd_map/20260916_160000_123456_lab_a.pcd
 
 ```bash
 bash scripts/run.sh localization \
-  map_path:=pcd_map/20260916_160000_123456_lab_a.pcd rviz:=true
+  map_path:=pcd_map/20260916_160000_123456_lab_a.pcd search_radius:=3.0
 # 切换到另一个场景时只需换地图路径，不改 YAML：
 bash scripts/run.sh localization \
-  map_path:=pcd_map/20260917_100000_123456_lab_b.pcd rviz:=true
+  map_path:=pcd_map/20260917_100000_123456_lab_b.pcd
+# 按需开启 RViz2，默认不开；兼容脚本也支持：
+bash scripts/run_localization_local.sh \
+  map_path:=pcd_map/20260916_160000_123456_lab_a.pcd --rviz
 # 已 source 的容器内也可直接启动：
 ros2 launch fast_lio mid360.launch.py mode:=localization \
   map_path:=/workspace/humble_space/fastlio-mid360_space/pcd_map/场景地图.pcd
@@ -221,9 +242,16 @@ ros2 launch fast_lio mid360.launch.py mode:=localization \
 
 **定位启动必须显式传入 `map_path`**。不传、文件不存在、后缀不是 `.pcd`、空文件或不可读，launch 会在启动节点/driver 前报错；不会默认加载示例地图或自动选择最新地图。该要求同样适用于旧定位 launch、通用 `mapping.launch.py`，以及使用定位 YAML 的离线 replay。YAML 中不再固定 `localization.map_path`。
 
+上述 PCD 是运行时的参考地图，不是编译依赖。换地图、搜索半径或 RViz2 开关只需
+重新启动，不需要重新编译；修改 C++ 源码才需要再次运行 `build.sh`。
+
 脚本会把启动目录固定在工作区根目录，因此可以使用 `pcd_map/xxx.pcd` 相对路径；手动 `ros2 launch` 的相对路径以当前终端 CWD 为准。宿主机快捷脚本最终在 Docker 内运行，绝对路径必须是**容器可访问的路径**，不是 `/home/shawntao/...` 的宿主机路径。
 
-`pcd_map/test.pcd` 只是原工程带来的启动示例，不能假定它对应当前场地，必须显式选择才能加载。请使用当前场地建出的地图，并在 `mid360_localization.yaml` 中设置正确的 `localization.initial_pose`。地图选择不等于自动重定位；不同场景还需要匹配的初始位姿。定位模式只读地图，发布 latched `/reference_map`，拒绝 `/map_save`。建图和定位的 `preprocess`、标定外参及 IMU 协方差须保持一致；本工作区包含检查这些参数一致性的测试。
+`pcd_map/test.pcd` 只是原工程带来的启动示例，不能假定它对应当前场地，必须显式选择才能加载。定位默认先在建图原点 `[0,0,0]` 周围 3 m 内搜索初始位置和完整 360° 朝向；启动后保持静止，直到 `/localization/status` 为 `ready` 再移动。可以通过 `search_radius:=3.0` 覆盖半径，默认额外限制高度偏差 ±0.5 m，不搜索 roll/pitch。粗搜索、精配准和新扫描复核通过后，才发布里程计和允许轨迹录制；失败不回退到地图原点。
+
+初始位姿 `[x,y,z,yaw]`、重叠率、残差可从 `localization.matched_pose` / `matched_overlap` / `matched_rmse` 节点参数读取；失败后可调用 `/relocalize` 重试。完整状态、调参、边界与测试见 [启动重定位说明](doc/STARTUP_RELOCALIZATION.md)。显式 `relocalize:=false` 恢复原来的 YAML `localization.initial_pose` 与 `/initialpose` 直接播种方式；自动模式不接受直接位姿跳变。
+
+定位模式只读地图，发布 latched `/reference_map`，拒绝 `/map_save`。建图和定位的 `preprocess`、标定外参及 IMU 协方差须保持一致；本工作区包含检查这些参数一致性的测试。不同场景必须使用各自的实际地图；重复结构、低质量地图或超出搜索范围不保证重定位成功。
 
 原 GT 记录工具保留，也安装为 ROS 可执行脚本：
 

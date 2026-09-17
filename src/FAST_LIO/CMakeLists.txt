@@ -64,6 +64,13 @@ install(PROGRAMS scripts/gt_record.py scripts/gt_postprocess.py
 ament_export_dependencies(rosidl_default_runtime)
 if(BUILD_TESTING)
   enable_testing()
+  add_executable(fastlio_relocalization_test test/relocalization_test.cpp)
+  target_include_directories(fastlio_relocalization_test PRIVATE include)
+  target_link_libraries(fastlio_relocalization_test Threads::Threads)
+  add_test(NAME bounded_startup_relocalization COMMAND fastlio_relocalization_test)
+  set_tests_properties(bounded_startup_relocalization PROPERTIES TIMEOUT 120)
+  add_test(NAME startup_launch_parameters COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/test_relocalization_config.py")
   add_executable(fastlio_map_storage_test test/map_storage_test.cpp)
   target_include_directories(fastlio_map_storage_test PRIVATE include ${PCL_INCLUDE_DIRS})
   target_link_libraries(fastlio_map_storage_test ${PCL_LIBRARIES})

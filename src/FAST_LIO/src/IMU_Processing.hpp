@@ -37,6 +37,11 @@ class ImuProcess
   ~ImuProcess();
   
   void Reset();
+  bool initialized() const { return !imu_need_init_; }
+  void rotate_world_history(const M3D& rotation) {
+    acc_s_last = rotation * acc_s_last;
+    IMUpose.clear();
+  }
   // void Reset(double start_timestamp, const sensor_msgs::ImuConstPtr &lastimu);
   void Reset(double start_timestamp, const sensor_msgs::msg::Imu::ConstSharedPtr &lastimu);
   void set_extrinsic(const V3D &transl, const M3D &rot);
@@ -108,6 +113,9 @@ void ImuProcess::Reset()
   angvel_last       = Zero3d;
   imu_need_init_    = true;
   start_timestamp_  = -1;
+  b_first_frame_    = true;
+  last_lidar_end_time_ = 0;
+  acc_s_last = Zero3d;
   init_iter_num     = 1;
   v_imu_.clear();
   IMUpose.clear();
@@ -352,6 +360,7 @@ void ImuProcess::Process(const MeasureGroup &meas,  esekfom::esekf<state_ikfom, 
     imu_need_init_ = true;
     
     last_imu_   = meas.imu.back();
+    last_lidar_end_time_ = meas.lidar_end_time;
 
     state_ikfom imu_state = kf_state.get_x();
     if (init_iter_num > MAX_INI_COUNT)

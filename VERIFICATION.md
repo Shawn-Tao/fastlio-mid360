@@ -1,4 +1,54 @@
-# 验证记录（2026-09-16）
+# 验证记录
+
+## 文档和 RViz2 脚本选项更新（2026-09-17）
+
+- README、启动重定位、Jetson、GT 文档分清编译与运行：编译不需要 PCD，
+  `map_path` / `search_radius` 是定位启动参数，修改地图和运行开关无需重新编译。
+- 统一启动脚本和兼容入口支持 `--rviz` / `--no-rviz`，默认关闭，保留
+  `rviz:=true/false`；多次指定只转发最后一次选择。`--help` 不依赖 ROS/Docker/地图。
+- 主机 11 项工具测试和 5 项参数流转测试通过，覆盖三种模式、兼容脚本、
+  带空格地图路径、帮助、RViz2 默认不创建/开启时只创建一个 action，以及开关转换。
+  参数测试仍为明确标注的 ROS action stubs，不代表 GUI 渲染验证。
+- 真正的 Humble action 配置测试也增加三种模式的 RViz2 默认关闭/显式开启检查，
+  但完整 ROS 编译、该项 ROS 测试及 GUI 仍待可用 ROS/Docker 环境运行。
+
+## 启动重定位更新（2026-09-17）
+
+本次主机是 WSL Ubuntu 24.04，GCC 13.3.0 / Python 3.12.3，没有 `/opt/ros`。
+Linux Docker 命令提示 WSL integration 未启用；只读检查 Windows docker.exe
+也无法连接 Docker Desktop daemon。因此下面的旧 Humble 验证记录仅代表旧快照，
+不能视为新启动重定位代码已经完成 ROS 编译或实机验证。
+
+本次已完成：
+
+- 实现独立于 ROS/PCL 的有界四自由度粗搜索、裁剪 ICP、质量/歧义拒绝，
+  接入静止积累、后台搜索、新扫描复核、ready/failed 状态和显式重试。
+- `g++ -std=c++17 -O2 -Wall -Wextra -Werror -pthread` 编译原生回归测试通过。
+  合成不对称房间恢复约 2.6 m 位移和 137.5° 朝向，覆盖 ±π 朝向边界、
+  独立扫描评估、位置/高度越界、错误场景、重复地点歧义、取消、超时和参数拒绝。
+  耗时与误差仅为合成测试，不代表 Jetson 实测性能或精度。
+- 原生启动状态机测试覆盖 IMU 门控、运动清除积累、后台 worker 的 busy 拒绝、
+  新扫描确认门控、一次性 ready、重试、运动期间取消以及不可信确认扫描拒绝。
+- AddressSanitizer / UndefinedBehaviorSanitizer 的检查在主机执行；原始 LeakSanitizer
+  不支持当前 ptrace 执行环境，沙箱外检查申请自动审批超时，没有执行。
+  后续在沙箱内关闭泄漏检查，内存越界/未定义行为测试通过；不覆盖泄漏检查。
+- 4 项主机参数测试通过，使用明确标注的 ROS action stubs，覆盖地图选择、
+  半径/手动覆盖、非法半径/模式，以及定位 replay 参数流转；不是 ROS 执行验证。
+- 9 项工具测试、9 项 Git/本地配置测试，以及 5 项无 ROS 工程契约检查通过。
+  保持建图/定位物理参数一致；默认 LiDAR JSON 与 SDK 未修改。
+- ROS 无硬件 smoke 已扩展为检查 waiting_for_imu、无 Odometry 数据和拒绝轨迹录制，
+  但受上述环境限制，本次尚未运行。CTest 增加原生搜索/状态机和启动参数测试。
+- 临时部署 ZIP 校验通过：279 条目，CRC、必需源码、新重定位文件、两套 SDK ELF
+  与脚本权限正确，没有携带本地配置。该包用于主机校验，不覆盖前次交付 ZIP。
+
+待完成：在 Humble 中执行 `scripts/build.sh` / `scripts/test.sh`，随后在 Jetson
+使用实际场地地图、多个 ≤3 m 起点和不同朝向，验证匹配率、误匹配、时延、
+质量门限、IMU/滤波器位姿重置及跟踪连续性。默认四自由度要求同楼层、姿态直立，
+没有任意 roll/pitch 或全图全局定位能力。
+
+本次未覆盖已有 ZIP；需在 ROS 编译/实机验收后重新运行 `scripts/package.sh`。
+
+## 前次 Humble 快照（2026-09-16，未包含启动重定位）
 
 环境：容器 `3018b9a5759e`，镜像 `fastlio-humble:jammy`，ROS 2 Humble，x86-64，GCC 11.4.0，CMake 3.22.1。宿主机工作区 bind mount 到 `/workspace/humble_space`；网络模式为 host。
 

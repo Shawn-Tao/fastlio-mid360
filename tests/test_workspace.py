@@ -95,6 +95,16 @@ class WorkspaceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'does not exist'):
             self.launch_actions(config_file=str(ROOT / 'missing_test_config.yaml'))
 
+    def test_rviz2_default_off_and_explicit_enable(self):
+        for mode in ('mapping', 'localization', 'replay'):
+            arguments = {'mode': mode}
+            if mode == 'localization':
+                arguments['map_path'] = str(ROOT / 'pcd_map/test.pcd')
+            actions = self.launch_actions(inspect_nodes=True, **arguments)
+            self.assertFalse(any(action['package'] == 'rviz2' for action in actions))
+            actions = self.launch_actions(inspect_nodes=True, **arguments, rviz='true')
+            self.assertEqual(sum(action['package'] == 'rviz2' for action in actions), 1)
+
     def test_localization_requires_explicit_map(self):
         for arguments in ({'mode': 'localization'},
                           {'mode': 'replay', 'config_file': 'mid360_localization.yaml'},
@@ -108,6 +118,31 @@ class WorkspaceTests(unittest.TestCase):
             empty.touch()
             with self.assertRaisesRegex(ValueError, 'empty'):
                 self.launch_actions(mode='localization', map_path=str(empty))
+
+    def test_bounded_relocalization_defaults_and_overrides(self):
+        options = self.config('mid360_localization.yaml')['localization']['relocalization']
+        self.assertTrue(options['enabled'])
+        self.assertEqual(options['center'], [0.0, 0.0, 0.0])
+        self.assertEqual(options['radius'], 3.0)
+        actions = self.launch_actions(inspect_nodes=True, mode='localization',
+                                      map_path=str(ROOT / 'pcd_map/test.pcd'),
+                                      relocalize='true', search_radius='2.5')
+        overrides = actions[1]['parameters'][1]
+        self.assertTrue(overrides['localization.relocalization.enabled'])
+        self.assertEqual(overrides['localization.relocalization.radius'], 2.5)
+        actions = self.launch_actions(inspect_nodes=True, mode='localization',
+                                      map_path=str(ROOT / 'pcd_map/test.pcd'), relocalize='false')
+        self.assertFalse(actions[1]['parameters'][1]['localization.relocalization.enabled'])
+
+    def test_invalid_relocalization_arguments(self):
+        base = {'mode': 'localization', 'map_path': str(ROOT / 'pcd_map/test.pcd')}
+        for radius in ('-1', '0', 'nan', 'inf', 'abc'):
+            with self.assertRaisesRegex(ValueError, 'finite positive'):
+                self.launch_actions(**base, search_radius=radius)
+        with self.assertRaisesRegex(ValueError, 'true or false'):
+            self.launch_actions(**base, relocalize='yes')
+        with self.assertRaisesRegex(ValueError, 'localization-only'):
+            self.launch_actions(mode='mapping', search_radius='3')
 
     def test_map_name_and_output_validation(self):
         self.assertEqual(len(self.launch_actions(mode='replay', map_name='场景A')), 1)

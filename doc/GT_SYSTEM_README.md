@@ -8,11 +8,17 @@
 
 在工作区根目录执行，脚本选择本机 Humble 或挂载此工作区的容器：
 
+第一次部署或修改 C++ 后先单独执行 `bash scripts/build.sh`，编译无需 PCD。
+下面命令是编译完成后的运行命令，地图与搜索参数不传给 build。
+
 ```bash
 bash scripts/run.sh mapping map_name:=lab_a record_bag:=true
 # 正常 Ctrl+C → pcd_map/<启动时间戳>_lab_a.pcd，并收尾录包
 bash scripts/run.sh localization map_path:=pcd_map/实际地图.pcd record_bag:=true
 ```
+
+RViz2 默认关闭；建图/定位/重放脚本追加 `--rviz` 可开启，`--no-rviz` 可明确关闭，
+也支持原来的 `rviz:=true/false`。GUI 开关与录包开关相互独立。
 
 `record_bag` 默认 **false**；实验需显式开启。默认录制
 `/livox/lidar /livox/imu /Odometry` 到工作区 `bags/<mode>_<时间戳>/`，
@@ -21,7 +27,11 @@ bash scripts/run.sh localization map_path:=pcd_map/实际地图.pcd record_bag:=
 
 建图地图位于 `pcd_map/`，手动 `/map_save` 和 Ctrl+C 更新同次会话文件。
 定位必须显式传入 `map_path`，不自动选示例或最新地图；地图只读，拒绝 `/map_save`。
-不同场景的初始位姿需匹配参考地图，`localization.initial_pose` 是 x,y,z,yaw(rad)。
+默认先在地图原点 3 m 内搜索初始位置和完整朝向，初始化必须保持静止。
+等 `/localization/status` ready 后再开始录制；未定位的录制请求被拒绝。
+初始化结果可读 `localization.matched_pose`（x,y,z,yaw(rad)）；见
+[启动重定位](STARTUP_RELOCALIZATION.md)。手动模式 `relocalize:=false` 才使用 YAML
+`localization.initial_pose` 与 `/initialpose` 直接播种。
 运行模式和地图路径不是在线切换参数，切换场景需正常退出后重新启动。
 
 建图/定位的 `preprocess.*`、点筛选与外参/协方差保持一致；变动标定或过滤方式后
@@ -64,7 +74,9 @@ ros2 run fast_lio gt_record.py start --source vln --instr lab_01 --poses-file st
 ros2 run fast_lio gt_record.py start --source manual --instr lab_01 --pose 0 0 0 0
 ```
 
-客户端在录制前发布 `/initialpose`；也可用 RViz 2D Pose Estimate。
+上述 `--pose` / `--poses-file` 和自动读取 `start_poses.csv` 的播种功能仅用于
+`relocalize:=false` 手动模式。自动模式不使用起点姿态表，等待 ready 后直接录制。
+手动模式客户端在录制前发布 `/initialpose`；也可用 RViz 2D Pose Estimate。
 录制中拒绝位姿跳变，建图模式忽略 `/initialpose`。初始化误差容限与环境/点云有关，
 不保证固定平移/角度范围内一定收敛；开始采集前检查配准扫描是否贴合参考地图。
 

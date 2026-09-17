@@ -1,3 +1,5 @@
+> 本目录已适配统一 ROS 2 Humble 工作区，现行编译/运行请读 [工作区 README](../../README.md) 和 [启动重定位说明](../../doc/STARTUP_RELOCALIZATION.md)。编译不需要 PCD；定位启动才通过 `map_path:=...` 选择地图。启动脚本默认关闭 RViz2，追加 `--rviz` 可开启。以下保留上游算法说明和历史流程供参考。
+
 > ROS2 Fork repo maintainer: [Ericsiii](https://github.com/Ericsii)
 
 ## Related Works and Extended Application

@@ -1,5 +1,7 @@
 # Livox ROS Driver 2
 
+> 本目录已适配统一 ROS 2 Humble 工作区，现行编译与启动以 [工作区 README](../../README.md) 为准。driver 和 FAST-LIO 通过一次 `colcon build --symlink-install` 编译，SDK 自动按架构选择；编译不需要 PCD。以下保留上游文档及历史多版本流程供参考，不要用旧脚本覆盖本工程。
+
 Livox ROS Driver 2 is the 2nd-generation driver package used to connect LiDAR products produced by Livox, applicable for ROS (noetic recommended) and ROS2 (foxy or humble recommended).
 
   **Note :**

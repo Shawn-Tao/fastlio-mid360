@@ -14,14 +14,14 @@ Commands:
 Start-pose table (start_poses.csv), one line per instruction start point:
     instruction_id,x_m,y_m,z_m,yaw_deg
     lab_01,1.203,-0.510,0.012,87.5
-Lines starting with '#' are comments. If --poses-file is given (or
-./start_poses.csv exists) and the instruction is found, its pose is published
-to /initialpose before recording starts. Tolerance: the seed only needs to be
-roughly right (~0.5 m, ~10 deg) for scan-to-map matching to converge; the
-frame itself is always the reference-map frame.
+Lines starting with '#' are comments. In manual localization mode only, if
+--poses-file is given (or ./start_poses.csv exists), a matching pose is published
+to /initialpose. Automatic startup mode does not read the default table and
+rejects explicit --pose/--poses-file so they cannot silently bypass matching.
+There is no universal position/heading tolerance for scan-to-map convergence.
 
 Requires: rclpy (comes with ROS 2). Example:
-    source /Docker_Space/fastlio-space/install/setup.bash
+    source scripts/setenv.bash
     python3 gt_record.py readpose --name lab_01          # during calibration
     python3 gt_record.py start --source vln --instr lab_01 --poses-file start_poses.csv
     python3 gt_record.py stop
@@ -40,7 +40,7 @@ from rclpy.node import Node
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from nav_msgs.msg import Odometry
 from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
-from rcl_interfaces.srv import SetParameters
+from rcl_interfaces.srv import SetParameters, GetParameters
 from std_srvs.srv import Trigger
 
 
@@ -85,6 +85,21 @@ def load_poses(path):
                 continue
             poses[row[0].strip()] = tuple(float(v) for v in row[1:5])
     return poses
+
+
+def automatic_relocalization_enabled(node, fastlio_node):
+    name = fastlio_node.rstrip('/') + '/get_parameters'
+    client = node.create_client(GetParameters, name)
+    try:
+        wait_for_service(node, client, name)
+        request = GetParameters.Request()
+        request.names = ['localization.mode', 'localization.relocalization.enabled']
+        response = call_service(node, client, request)
+        return (len(response.values) == 2 and all(
+            value.type == ParameterType.PARAMETER_BOOL and value.bool_value
+            for value in response.values))
+    finally:
+        node.destroy_client(client)
 
 
 def publish_initial_pose(node, x, y, z, yaw_deg):
@@ -171,9 +186,17 @@ def main():
             return
 
         if args.cmd == "start":
+            automatic = automatic_relocalization_enabled(node, args.fastlio_node)
+            if automatic and (args.pose is not None or args.poses_file is not None):
+                node.get_logger().error(
+                    "Automatic startup matching is enabled. Do not pass --pose/--poses-file; "
+                    "wait for localization status ready, or launch with relocalize:=false for manual seeding.")
+                sys.exit(1)
             # 1) optional initial pose re-seed (localization mode)
             pose = None
-            if args.pose is not None:
+            if automatic:
+                node.get_logger().info("Automatic startup mode: using the matched pose; skipping start_poses.csv.")
+            elif args.pose is not None:
                 pose = tuple(args.pose)
             elif args.instr:
                 poses_file = args.poses_file
