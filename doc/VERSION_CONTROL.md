@@ -1,5 +1,24 @@
 # Git 版本管理约定
 
+## 常用指令：提交前检查
+
+已初始化仓库时，在工作区根目录执行以下只读检查：
+
+```bash
+git status --short
+git diff --check
+git diff --stat
+git status --short --ignored config/local records bags pcd_map
+```
+
+确认本地 IP/私密配置、轨迹、录包和场景 PCD 未进入提交范围；
+提交前按需执行 `bash scripts/test.sh`。脚本移入 lib/、backup/ 属于目录调整，
+提交时需包含旧路径删除和新路径文件，不要只提交顶层脚本。
+这份文档不会自动执行 add/commit/push；首次初始化示例在后文。
+日常编译、NX/AGX 启动命令见 [主文档速查](../README.md)。
+
+## 仓库约定
+
 以 `fastlio-mid360_space/` 为唯一仓库根目录，两个 ROS 包和已复制的第三方源码作为
 普通目录提交；不依赖旧 FAST_LIO / driver 仓库或 Git 子模块。
 源副本遗留的 `src/FAST_LIO/.gitmodules` 被忽略，不代表实际子模块；其源码仍跟踪。

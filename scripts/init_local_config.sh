@@ -3,4 +3,4 @@
 set -eo pipefail
 workspace_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$workspace_dir"
-exec python3 "$workspace_dir/scripts/init_local_config.py" "$@"
+exec python3 "$workspace_dir/scripts/lib/init_local_config.py" "$@"

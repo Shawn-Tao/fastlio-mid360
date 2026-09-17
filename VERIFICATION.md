@@ -1,5 +1,40 @@
 # 验证记录
 
+日常指令在 [主 README 开头](README.md)、[脚本说明开头](scripts/README.md) 和
+[Jetson 指南开头](doc/JETSON_DEPLOY.md)；本文件只记录验证范围，不替代启动指南。
+
+## 文档速查前置与同步（2026-09-17）
+
+- 三份主要文档开头使用完全一致的 NX 编译/自检、NX 建图、AGX 建图显示、
+  NX 定位、AGX 定位显示命令；所有实机例子显式选择本地雷达 JSON。
+- 启动重定位、长期运行、GT、Git、配置、地图、DDS、Docker 共 11 份使用文档
+  首个 Bash 命令均在前 15 行内；历史背景、目录结构和高级选项留在后文。
+- 分开计算端/查看端及并行终端，说明建图远程显示须 publish_map:=true、
+  编译不需要 PCD、RViz/rosbag 默认关闭，以及 PCD/JSON 保存配对。
+- 只读文档检查通过：86 个 Bash 代码块语法正确、引用的 scripts/docker 脚本存在，
+  现行示例不调用已归档的旧顶层入口。三份主要速查区逐字一致。
+- 重新执行 43 项主机 Python 回归，全部通过；git diff --check 通过。
+  本次仅整理文档，不新增真实 Humble/ARM64 编译、Qt GUI 或跨机通信验证。
+
+## 脚本精简和独立 RViz 入口（2026-09-17）
+
+- 顶层由 18 个脚本精简为 10 个入口；5 个历史名字移到 scripts/backup/，保留可用
+  wrapper，必需 helper 放 scripts/lib/。没有删除历史脚本，现行入口不依赖 backup/。
+- 计算端统一 run.sh mapping/localization/replay；rviz.sh mapping/localization 只开
+  查看器，自动加载相同 DDS 默认值，不要求本工作区编译/SDK/地图。
+- 增加 mapping.rviz / localization.rviz 预设，定位 /reference_map 使用 Transient Local；
+  统一 launch 的 --rviz 也按模式选预设。旧 fastlio.rviz 可作为自定义配置保留。
+- 更新文档、移动后路径、Docker 调度白名单和 ZIP 必需文件/排除规则；部署 ZIP 和
+  Docker 上下文不含 backup/，但仍含全部 lib/ 实现和两份 RViz 预设。
+- 主机 43 项 Python 检查通过（17 工具/布局/查看器、8 参数、9 Git/本地配置、
+  3 运行配置/CSV、6 无 ROS 工作区契约）。查看器执行测试使用明确的假 ROS 环境及
+  假 rviz2，仅验证命令、参数和 DDS，不代表 Qt GUI 渲染。
+
+仍无可用 ROS/Docker，最新真实 Humble action/节点启停、RViz 图形加载及
+NX↔AGX 跨机发现、参考图晚订阅和点云实时显示待现场验收。
+源码归档测试省略历史 wrapper 专用用例（backup/ 不随部署包发出），其余工具
+用例不依赖备份目录。
+
 ## 长期运行、存图和数据可信度更新（2026-09-17，当前代码）
 
 本节优先于后面的历史记录。当前 WSL 主机仍没有 `/opt/ros`、Eigen/PCL 开发环境；

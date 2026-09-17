@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Select a running container by bind mount, never by a machine-specific ID.
 set -eo pipefail
-workspace_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+workspace_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 script_name="${1:?Pass a workspace script name}"
 shift
 case "$script_name" in
-  build.sh|test.sh|run.sh|check_network.sh) ;;
+  build.sh|test.sh|run.sh|rviz.sh|check_network.sh) ;;
   *) echo "Unsupported container script: $script_name" >&2; exit 2 ;;
 esac
 find_workspace_mount() {

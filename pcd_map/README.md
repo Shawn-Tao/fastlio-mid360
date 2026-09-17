@@ -1,4 +1,27 @@
-地图目录：与 src/ 同级。
+# PCD 地图目录（与 src/ 同级）
+
+## 常用指令
+
+NX 工作区根目录建图，显式使用本机雷达配置：
+
+```bash
+bash scripts/run.sh mapping lidar_config:=config/local/MID360.jetson.local.json \
+  map_name:=lab_a publish_map:=true
+```
+
+正常 Ctrl+C，等待最终保存/退出；保留生成的 PCD 和同名 `.pcd.json`。
+定位选择实际地图并建议严格校验：
+
+```bash
+bash scripts/run.sh localization lidar_config:=config/local/MID360.jetson.local.json \
+  map_path:=pcd_map/实际地图.pcd search_radius:=3.0 map_metadata:=strict
+```
+
+`strict` 必须有合法配套 JSON；无 JSON 的旧地图可不传此项，默认 auto 警告兼容。
+编译不需要地图；AGX 看图也无需复制 PCD，分别用 `bash scripts/rviz.sh mapping` /
+`localization`。编译和首次配置见 [主文档](../README.md)。
+
+## 命名、保存和元数据
 
 建图默认保存为 `<启动时间戳>_<map_name>.pcd`，默认名称 `map`。
 例如 `20260916_160000_123456_lab_a.pcd`（时间戳使用节点所在容器/系统时区）。

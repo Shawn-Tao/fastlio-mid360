@@ -1,31 +1,49 @@
 # 建图、持续定位和长期运行
 
-本次修改保留 FAST-LIO 的局部 ikd-Tree / 迭代滤波主体，增加质量门控和独立
-全局存图缓存。没有闭环或位姿图全局优化，不能把轨迹估计当作外部绝对真值。
-原生策略测试不是 Humble/ARM64 编译、实机精度和性能验收。
+## 1. 常用指令和推荐流程
 
-## 1. 推荐流程
+以下在 NX 工作区根目录执行，已准备可用 Humble/容器和本地雷达配置。
+首次部署/更新后编译与自检：
 
 ```bash
 bash scripts/build.sh                 # 编译不需要 PCD
 bash scripts/test.sh                  # 必须在可用 Humble 中运行完整回归
-bash scripts/run.sh mapping map_name:=lab_a record_bag:=true
-# 另一个同环境终端：source scripts/setenv.bash
-ros2 topic echo /tracking/status
-ros2 service call /map_save std_srvs/srv/Trigger '{}'
-ros2 topic echo /map_save/status
-# 等待 saved；正常 Ctrl+C 等待最终保存和退出
 ```
 
-建图产生 `pcd_map/<时间戳>_lab_a.pcd` 和同名 `.pcd.json`。定位时建议严格校验：
+NX 终端 A：建图并主动开启原始录包，发布远程显示地图：
 
 ```bash
-bash scripts/run.sh localization map_path:=pcd_map/实际地图.pcd \
+bash scripts/run.sh mapping lidar_config:=config/local/MID360.jetson.local.json \
+  map_name:=lab_a publish_map:=true record_bag:=true
+```
+
+NX 终端 B：进入相同 ROS 环境后检查状态、请求保存（Bash；Docker 先进入对应容器）：
+
+```bash
+source scripts/setenv.bash
+ros2 topic echo /tracking/status --once --qos-durability transient_local
+ros2 service call /map_save std_srvs/srv/Trigger '{}'
+ros2 topic echo /map_save/status --qos-durability transient_local
+```
+
+终端 B 的最后一条持续显示保存状态；等待本次 saved，再按 Ctrl+C 结束该查看命令。
+之后在终端 A 正常 Ctrl+C，等待最终保存和退出。建图产生
+`pcd_map/<时间戳>_lab_a.pcd` 和同名 `.pcd.json`。定位时建议严格校验：
+
+```bash
+bash scripts/run.sh localization lidar_config:=config/local/MID360.jetson.local.json \
+  map_path:=pcd_map/实际地图.pcd \
   search_radius:=3.0 map_metadata:=strict
 ```
 
-仍默认关闭 RViz 和 rosbag，以上建图例子主动开启原始录包。实机 IP 继续使用
-`lidar_config:=config/local/MID360.jetson.local.json`，不修改默认模板。
+AGX 显示分别用 `bash scripts/rviz.sh mapping` / `localization`，两者择一；
+完整跨机流程见 [主文档](../README.md)。仍默认关闭计算端 RViz 和 rosbag，
+以上建图例子主动开启录包。`strict` 要求配套 JSON；旧地图无 JSON 默认 auto
+仅警告兼容，不等于已经验证。实机 IP 使用本地副本，不修改默认模板。
+
+本次修改保留 FAST-LIO 的局部 ikd-Tree / 迭代滤波主体，增加质量门控和独立
+全局存图缓存。没有闭环或位姿图全局优化，不能把轨迹估计当作外部绝对真值。
+原生策略测试不是 Humble/ARM64 编译、实机精度和性能验收。
 
 ## 2. 局部窗口与可信帧
 

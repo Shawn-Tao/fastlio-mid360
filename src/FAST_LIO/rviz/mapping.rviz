@@ -1,0 +1,79 @@
+# Local or remote mapping viewer; source NX must use publish_map:=true.
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Background Color: 0; 0; 0
+    Fixed Frame: camera_init
+    Frame Rate: 15
+  Displays:
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+      Value: true
+      Frames:
+        All Enabled: true
+      Show Names: false
+    - Class: rviz_default_plugins/Odometry
+      Name: Odometry
+      Enabled: true
+      Value: true
+      Keep: 20
+      Covariance:
+        Value: false
+      Topic:
+        Value: /Odometry
+        Depth: 5
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+    - Class: rviz_default_plugins/Path
+      Name: Path
+      Enabled: true
+      Value: true
+      Color: 25; 255; 0
+      Buffer Length: 1
+      Line Style: Lines
+      Line Width: 0.04
+      Pose Style: None
+      Topic:
+        Value: /path
+        Depth: 5
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+    - Class: rviz_default_plugins/PointCloud2
+      Name: MappingMap
+      Enabled: true
+      Value: true
+      Decay Time: 0
+      Position Transformer: XYZ
+      Color Transformer: AxisColor
+      Axis: Z
+      Style: Flat Squares
+      Size (Pixels): 3
+      Size (m): 0.1
+      Topic:
+        Value: /Laser_map
+        Depth: 1
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 25
+      Pitch: 0.7
+      Yaw: 0.8
+      Target Frame: camera_init
+Window Geometry:
+  Width: 1280
+  Height: 800

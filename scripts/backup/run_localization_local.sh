@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# map_path:=pcd_map/<actual scene filename>.pcd is required by the launcher.
+# Archived compatibility wrapper; prefer scripts/run.sh localization map_path:=...
 # RViz2 defaults off; pass --rviz (or rviz:=true) to enable. --help lists options.
 set -eo pipefail
-script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 exec bash "$script_dir/run.sh" localization "$@"

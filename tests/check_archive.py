@@ -26,6 +26,8 @@ def check_archive(path):
             # directories such as src/.../comm or source cmake modules.
             if len(parts) > 1 and parts[1] in excluded:
                 raise ValueError(f'Unexpected deployment artifact: {item.filename}')
+            if len(parts) > 2 and parts[1:3] == ('scripts', 'backup'):
+                raise ValueError(f'Archived scripts must not ship: {item.filename}')
             if any(p in {'.git', '.agents', '.codex', '__pycache__'} for p in parts):
                 raise ValueError(f'Unexpected metadata/cache: {item.filename}')
             local_suffixes = ('.local.json', '.local.yaml', '.local.yml', '.local.xml',
@@ -40,7 +42,11 @@ def check_archive(path):
         required = [
             'README.md', 'VERIFICATION.md', '.dockerignore', '.gitignore', '.gitattributes', 'colcon.meta',
             'config/README.md', 'config/COLCON_IGNORE',
-            'scripts/init_local_config.sh', 'scripts/init_local_config.py',
+            'scripts/README.md', 'scripts/rviz.sh', 'scripts/setenv.bash', 'scripts/setenv.zsh',
+            'scripts/init_local_config.sh', 'scripts/lib/init_local_config.py',
+            'scripts/lib/common.sh', 'scripts/lib/dds_env.sh', 'scripts/lib/in_container.sh',
+            'scripts/lib/check_network.py',
+            'src/FAST_LIO/rviz/mapping.rviz', 'src/FAST_LIO/rviz/localization.rviz',
             'doc/JETSON_DEPLOY.md', 'doc/GT_SYSTEM_README.md',
             'dds_config/cyclonedds.xml', 'dds_config/cyclonedds_pc.xml',
             'docker/Dockerfile', 'docker/Dockerfile_jetson', 'docker/build.sh', 'docker/run.sh',
@@ -59,7 +65,7 @@ def check_archive(path):
         for name in required:
             if f'{root}/{name}' not in names:
                 raise ValueError(f'Missing required file: {name}')
-        for name in ('scripts/build.sh', 'scripts/test.sh', 'scripts/run.sh',
+        for name in ('scripts/build.sh', 'scripts/test.sh', 'scripts/run.sh', 'scripts/rviz.sh',
                      'scripts/package.sh', 'scripts/init_local_config.sh', 'src/livox_ros_driver2/build.sh'):
             info = archive.getinfo(f'{root}/{name}')
             if not info.external_attr >> 16 & stat.S_IXUSR:

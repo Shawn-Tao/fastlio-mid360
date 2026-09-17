@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -eo pipefail
 workspace_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$workspace_dir/scripts/common.sh"
+source "$workspace_dir/scripts/lib/common.sh"
 fastlio_dispatch test.sh "$@"
 source /opt/ros/humble/setup.bash
 if [[ ! -f "$workspace_dir/install/local_setup.bash" ]]; then

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -eo pipefail
 workspace_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$workspace_dir/scripts/common.sh"
+source "$workspace_dir/scripts/lib/common.sh"
 fastlio_dispatch build.sh "$@"
 source /opt/ros/humble/setup.bash
 cd "$workspace_dir"

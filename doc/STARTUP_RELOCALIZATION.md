@@ -1,9 +1,6 @@
 # 地图原点附近的启动重定位
 
-定位默认启用启动重定位，不再要求准确站回建图起点或复现建图朝向。
-必须选择当前场地的实际地图；随包 `test.pcd` 只适用于程序启动自检。
-
-## 编译和启动是两步
+## 常用指令：编译和启动是两步
 
 第一步只编译代码，无需 PCD、搜索半径或 RViz2 参数：
 
@@ -11,26 +8,32 @@
 bash scripts/build.sh
 ```
 
-第二步才指定地图并启动定位，默认不启动 RViz2：
+第二步在 NX 指定本地雷达配置、地图并启动定位：
 
 ```bash
-bash scripts/run_localization_local.sh map_path:=pcd_map/实际地图.pcd
-# 半径覆盖默认值；实机 JSON 仍通过本地副本选择
-bash scripts/run.sh localization map_path:=pcd_map/实际地图.pcd \
-  search_radius:=3.0 lidar_config:=config/local/MID360.local.json
+bash scripts/run.sh localization \
+  lidar_config:=config/local/MID360.jetson.local.json \
+  map_path:=pcd_map/实际地图.pcd search_radius:=3.0
 ```
 
-需要本机可视化时追加 `--rviz`，明确关闭可用 `--no-rviz`；
-现有 `rviz:=true/false` 也保持支持。例如：
+AGX 独立查看定位（已有 Humble、RViz2 和桌面，不需复制地图或编译工程）：
 
 ```bash
-bash scripts/run_localization_local.sh \
-  map_path:=pcd_map/实际地图.pcd search_radius:=3.0 --rviz
-bash scripts/run_localization_local.sh --help
+bash scripts/rviz.sh localization
 ```
+
+所有命令在各自工作区根目录执行。NX 默认不开 RViz2、不录 bag；本机可视化
+追加 `--rviz`，录包追加 `record_bag:=true`，明确关闭 GUI 可用 `--no-rviz`，
+也兼容 `rviz:=true/false`。两端默认 Fast DDS/domain 18，环境覆盖须一致。
+本地 JSON 首次创建与建图步骤见 [主文档](../README.md)。
 
 换 PCD、搜索半径或 RViz2 开关不需要重新编译。代码块中的换行分隔两条命令；
 只有行尾的 `\` 才把下一行接到同一条命令，不能在 `build.sh` 后接定位参数。
+
+## 原理和适用范围
+
+定位默认启用启动重定位，不再要求准确站回建图起点或复现建图朝向。
+必须选择当前场地的实际地图；随包 `test.pcd` 只适用于程序启动自检。
 
 默认搜索中心 `[0,0,0]` 是建图开始时的 IMU 原点，不是 PCD 点云质心，
 也不是机器人 base_link 或当前扫描中心。搜索严格限制在中心的三维距离 3 m

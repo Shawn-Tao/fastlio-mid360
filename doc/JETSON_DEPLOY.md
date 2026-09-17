@@ -1,5 +1,64 @@
 # ZIP → Jetson 测试指南
 
+## 常用指令：部署完成后直接使用
+
+<!-- BEGIN QUICK_COMMANDS -->
+
+所有命令均在各自机器的 `fastlio-mid360_space` 根目录执行。NX 负责接雷达和计算，
+AGX 只负责显示；先准备可用的 Humble 环境和 NX 的本地雷达配置。首次部署步骤见下文。
+
+**NX：编译和自检**（编译不需要 PCD；首次部署或更新代码后执行）：
+
+```bash
+bash scripts/build.sh
+bash scripts/test.sh
+```
+
+**NX：建图**：
+
+```bash
+bash scripts/check_network.sh config/local/MID360.jetson.local.json
+bash scripts/run.sh mapping \
+  lidar_config:=config/local/MID360.jetson.local.json \
+  map_name:=lab_a publish_map:=true
+```
+
+**AGX：显示建图**（已有 Humble、RViz2 和可用桌面）：
+
+```bash
+bash scripts/rviz.sh mapping
+```
+
+NX 建图结束按 Ctrl+C，等待最终保存和退出；保留 `pcd_map/` 中实际生成的
+PCD 和配套 `.pcd.json`。不要同时启动建图、定位两套计算端。
+
+**NX：定位**（替换实际地图名；初始化时保持静止）：
+
+```bash
+bash scripts/run.sh localization \
+  lidar_config:=config/local/MID360.jetson.local.json \
+  map_path:=pcd_map/实际地图.pcd search_radius:=3.0
+```
+
+**AGX：显示定位**（先退出建图查看器）：
+
+```bash
+bash scripts/rviz.sh localization
+```
+
+计算端默认不启动 RViz2、不录 rosbag；本机看图追加 `--rviz`，录包追加
+`record_bag:=true`。建图远程看图必须传 `publish_map:=true`。AGX 无需编译本工程、
+安装 Livox SDK 或复制 PCD，只需本项目脚本/显示配置及可用的 Humble/RViz2。
+两端默认 Fast DDS、`ROS_DOMAIN_ID=18`；环境覆盖值须一致，跨机不能设置
+`ROS_LOCALHOST_ONLY=1`。更换地图、搜索半径或 RViz 开关不需要重新编译。
+
+<!-- END QUICK_COMMANDS -->
+
+尚未准备好环境时，先按下面第 1～3 节解压、安装/创建 Humble 环境、
+创建 `config/local/MID360.jetson.local.json`，再使用以上速查命令。
+
+## 源码包与首次部署
+
 本包是源码部署包，不是可直接运行的 ARM 二进制。
 包含 driver、FAST-LIO、完整第三方源码、ARM64/x86-64 两套 SDK、DDS / Docker / 脚本、
 PCD 示例与文档。排除原电脑的 `build/ install/ log/ bags/`、Git / Python 缓存、
@@ -75,11 +134,12 @@ ip -br addr
 bash scripts/init_local_config.sh --name jetson --host-ip 192.168.123.18 --lidar-ip 192.168.123.114
 bash scripts/check_network.sh config/local/MID360.jetson.local.json
 bash scripts/run.sh mapping lidar_config:=config/local/MID360.jetson.local.json \
-  map_name:=lab_a --no-rviz record_bag:=true
+  map_name:=lab_a publish_map:=true record_bag:=true
 ```
 
-网络检查只读，不给网卡写固定地址、不修改路由或防火墙；旧
-`config_interface.sh` 也改为只读检查。通过目标系统的网卡管理工具配置雷达网卡，
+以上建图例子主动开启录包；不加 `record_bag:=true` 则不录包。
+网络检查只读，不给网卡写固定地址、不修改路由或防火墙。
+通过目标系统的网卡管理工具配置雷达网卡，
 避免改动远程 SSH 使用的网卡。网络检查通过仍不代表收到雷达数据。
 
 另开同一运行环境终端，source Humble / 本工作区后检查 `/livox/lidar`、`/livox/imu`、
@@ -118,11 +178,14 @@ bash scripts/run.sh localization lidar_config:=config/local/MID360.jetson.local.
 建议 Jetson 不开 RViz，PC 上使用同一 `ROS_DOMAIN_ID`，按
 [DDS 说明](../dds_config/README.md) 选择 RMW、通信网卡及可选 peers。
 启动脚本默认不启动 RViz2；Jetson 本机需要 GUI 时追加 `--rviz`，显式关闭用
-`--no-rviz`（也兼容 `rviz:=true/false`），可用 `scripts/run_localization_local.sh --help`
+`--no-rviz`（也兼容 `rviz:=true/false`），可用 `bash scripts/run.sh --help`
 查看选项。`--rviz` 只控制运行时启动，不会安装 RViz2；需要已安装 RViz2 和可用显示环境。
 雷达 UDP 收包与 PC↔Jetson DDS 是两个独立问题。
 PC RViz 使用 `camera_init` Fixed Frame；参考地图订阅 `/reference_map`，
-Durability 设 Transient Local，扫描看 `/cloud_registered`。
+Durability 设 Transient Local，扫描看 `/cloud_registered`。独立 AGX/PC 已有 Humble、RViz2
+和桌面时可直接运行 `bash scripts/rviz.sh localization`，预设已配置这些话题/QoS；
+建图显示用 `bash scripts/rviz.sh mapping`，NX 须传 publish_map:=true。查看端不需要编译
+本工作区或复制地图。脚本清单见 [scripts/README.md](../scripts/README.md)。
 GT 轨迹采集与 bag 重放见 [GT 文档](GT_SYSTEM_README.md)。
 
 ## 5. 验收和重新打包

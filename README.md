@@ -1,45 +1,95 @@
 # FAST-LIO + Livox MID360：ROS 2 Humble 统一工作区
 
-原电脑目录：`/home/shawntao/workspace/humble_space/fastlio-mid360_space`。原验证 Docker 容器：`3018b9a5759e`；挂载目录：`/workspace/humble_space/fastlio-mid360_space`。部署后可以放在任意路径；脚本不固定原容器 ID，按工作区 bind mount 查找。
+## 1. 常用指令：NX 计算，AGX 看图
 
-Jetson 首次部署请读 [doc/JETSON_DEPLOY.md](doc/JETSON_DEPLOY.md)：源码 ZIP 需在 ARM64 上重新编译，不携带原电脑的编译产物。Docker 镜像环境与 [DDS 配置](dds_config/README.md) 也已更新。
+<!-- BEGIN QUICK_COMMANDS -->
 
-driver 与 FAST-LIO 已整理为同一 `src/` 下的两个 ament 包。只需 source ROS Humble，再执行一次 `colcon build --symlink-install`，colcon 会依据 `fast_lio/package.xml` 的依赖关系先编译 driver、再编译 FAST-LIO，不需要中途 source driver，也不需要预先安装 SDK 到 `/usr/local`。
+所有命令均在各自机器的 `fastlio-mid360_space` 根目录执行。NX 负责接雷达和计算，
+AGX 只负责显示；先准备可用的 Humble 环境和 NX 的本地雷达配置。首次部署步骤见下文。
 
-## 1. 快速使用
-
-在工作区根目录执行：本机已有 Humble 时默认本机运行；否则自动解析 bind mount 进入匹配的运行容器。显式设置 `FASTLIO_CONTAINER` 或 `FASTLIO_NATIVE=0` 可以锁定 Docker。
-
-编译不需要选择 PCD，`build.sh` 只接收 colcon 编译参数；`map_path`、`search_radius`、
-RViz2 等是运行参数，传给启动脚本。两者是独立命令，不要把下一条启动命令的参数
-接在 `build.sh` 后面。RViz2 和 rosbag 均默认关闭。
+**NX：编译和自检**（编译不需要 PCD；首次部署或更新代码后执行）：
 
 ```bash
-cd /home/shawntao/workspace/humble_space/fastlio-mid360_space
 bash scripts/build.sh
-bash scripts/test.sh                 # 无雷达：配置、架构、节点启动自检
-bash scripts/check_network.sh        # 实机运行前检查；只读，不修改网卡
-bash scripts/run.sh mapping map_name:=lab_a
+bash scripts/test.sh
 ```
 
-需要可视化时追加 `--rviz`，需要录包时追加 `record_bag:=true`，例如：
+**NX：建图**：
 
 ```bash
-bash scripts/run.sh mapping map_name:=lab_a --rviz record_bag:=true
-bash scripts/run_localization_local.sh --help
+bash scripts/check_network.sh config/local/MID360.jetson.local.json
+bash scripts/run.sh mapping \
+  lidar_config:=config/local/MID360.jetson.local.json \
+  map_name:=lab_a publish_map:=true
 ```
 
-在**容器内**手动编译、启动：
+**AGX：显示建图**（已有 Humble、RViz2 和可用桌面）：
 
 ```bash
-cd /workspace/humble_space/fastlio-mid360_space
+bash scripts/rviz.sh mapping
+```
+
+NX 建图结束按 Ctrl+C，等待最终保存和退出；保留 `pcd_map/` 中实际生成的
+PCD 和配套 `.pcd.json`。不要同时启动建图、定位两套计算端。
+
+**NX：定位**（替换实际地图名；初始化时保持静止）：
+
+```bash
+bash scripts/run.sh localization \
+  lidar_config:=config/local/MID360.jetson.local.json \
+  map_path:=pcd_map/实际地图.pcd search_radius:=3.0
+```
+
+**AGX：显示定位**（先退出建图查看器）：
+
+```bash
+bash scripts/rviz.sh localization
+```
+
+计算端默认不启动 RViz2、不录 rosbag；本机看图追加 `--rviz`，录包追加
+`record_bag:=true`。建图远程看图必须传 `publish_map:=true`。AGX 无需编译本工程、
+安装 Livox SDK 或复制 PCD，只需本项目脚本/显示配置及可用的 Humble/RViz2。
+两端默认 Fast DDS、`ROS_DOMAIN_ID=18`；环境覆盖值须一致，跨机不能设置
+`ROS_LOCALHOST_ONLY=1`。更换地图、搜索半径或 RViz 开关不需要重新编译。
+
+<!-- END QUICK_COMMANDS -->
+
+### 首次使用：创建 NX 本地雷达配置
+
+只需创建一次；将示例 IP 换成 NX 接收网卡和雷达的真实地址，**不要填 AGX 的 IP**：
+
+```bash
+bash scripts/init_local_config.sh --name jetson \
+  --host-ip 192.168.123.18 --lidar-ip 192.168.123.114
+```
+
+生成 `config/local/MID360.jetson.local.json`，拒绝覆盖已有文件；以后只编辑本地副本，
+不改默认模板。这个创建命令不需要 ROS/Docker/sudo，也不会配置系统网卡。
+Git 和部署 ZIP 不携带本地配置，换机器须重新创建。
+
+首次部署见 [Jetson 指南](doc/JETSON_DEPLOY.md)；
+入口清单见 [脚本说明](scripts/README.md)；跨机通信见 [DDS 说明](dds_config/README.md)。
+本机已有 Humble 时脚本默认本机运行；否则查找挂载本工作区的运行中容器，
+不会自动创建容器。指定 `FASTLIO_CONTAINER` 或 `FASTLIO_NATIVE=0` 可锁定 Docker。
+`test.sh` 是无雷达自检，不代表实机精度验收。
+
+### 手动编译和环境选择
+
+driver 与 FAST-LIO 位于同一 `src/` 下，只需一次 `colcon build --symlink-install`。
+colcon 依据包依赖先编译 driver、再编译 FAST-LIO，不需要中途 source driver，
+也不需要预先安装 SDK 到 `/usr/local`。
+
+在**容器内的工作区根目录**手动编译、启动：
+
+```bash
 source /opt/ros/humble/setup.bash
 colcon build --symlink-install
 source scripts/setenv.bash
-ros2 launch fast_lio mid360.launch.py mode:=mapping map_name:=lab_a rviz:=false
+ros2 launch fast_lio mid360.launch.py mode:=mapping map_name:=lab_a rviz:=false \
+  lidar_config:=config/local/MID360.jetson.local.json
 ```
 
-`local_setup.bash` 在已 source Humble 后加载本工作区；也可直接 `source install/setup.bash`。使用 zsh 时相应换成 `setup.zsh` / `local_setup.zsh`。不要混入旧 driver / FAST-LIO 工作区的 overlay，尤其不要沿用旧 `scripts/x86_setenv.sh` 中的失效路径与固定网卡 DDS 配置。
+`local_setup.bash` 在已 source Humble 后加载本工作区；也可直接 `source install/setup.bash`。使用 zsh 时相应换成 `setup.zsh` / `local_setup.zsh`。不要混入旧 driver / FAST-LIO 工作区的 overlay。环境入口不分 x86/ARM，旧架构别名已归档到 scripts/backup/。
 
 交互 ROS CLI 推荐 `source scripts/setenv.bash`（Zsh 用 `setenv.zsh`），它还配置与运行脚本一致的默认 DDS 域 18；仅 source ROS/install 不会设置 domain。PC、Jetson 和另开终端必须保持同一个 `ROS_DOMAIN_ID`。
 
@@ -52,7 +102,7 @@ MAKEFLAGS='-j2 -l2' colcon build --symlink-install
 脚本配置：
 
 ```bash
-FASTLIO_CONTAINER=<容器名或ID> bash scripts/build.sh
+FASTLIO_CONTAINER=实际容器名或ID bash scripts/build.sh
 FASTLIO_BUILD_JOBS=1 bash scripts/build.sh
 # bind mount 自动解析不适用时，手动指定容器内工作区路径：
 FASTLIO_CONTAINER_WORKSPACE=/其他路径/fastlio-mid360_space bash scripts/test.sh
@@ -67,6 +117,12 @@ bash docker/run.sh --detach
 
 ## 2. 目录与复制范围
 
+原电脑目录：`/home/shawntao/workspace/humble_space/fastlio-mid360_space`。
+原验证容器：`3018b9a5759e`，挂载目录：`/workspace/humble_space/fastlio-mid360_space`。
+部署可以放在任意路径；脚本不固定原容器 ID，按工作区 bind mount 查找。
+脚本顶层保留 10 个入口，内部实现放 `scripts/lib/`，5 个历史别名放
+`scripts/backup/`；现行入口不依赖备份，部署 ZIP 不含备份目录。
+
 ```text
 fastlio-mid360_space/
 ├── src/
@@ -77,7 +133,7 @@ fastlio-mid360_space/
 ├── pcd_map/                 # 与 src/ 同级的统一地图目录
 │   └── test.pcd             # 显式选择的自检示例，不作为默认定位地图
 ├── records/                 # 按需生成的持久化 CSV，不进入 Git/部署 ZIP
-├── scripts/                # 编译、运行、自检、Docker 调度及网络检查
+├── scripts/                # 10 个入口；lib/ 内部实现、backup/ 历史别名
 ├── config/                 # 本地配置初始化说明；local/ 不进入 Git 或部署包
 ├── dds_config/             # 可选 Cyclone DDS；不固定网卡、peer 或 domain
 ├── docker/                 # PC / Jetson 通用 Humble CPU 镜像与启动脚本
@@ -90,7 +146,7 @@ fastlio-mid360_space/
 
 两个源工程按现有文件复制，保留许可证、算法改动、launch/config、第三方源码和 GT 记录工具；不复制 `.git`（包括指向旧仓库的子模块 `.git` 文件）、Python 缓存和旧工作区的 build/install/log。SDK 的头文件、共享库和静态库均完整复制。`reference/` 与 SDK 根目录带 `COLCON_IGNORE`，不会参与包发现。
 
-原 `fastlio-space` 未修改。原 `livox_space` 的 driver 只修改了 CMake 的默认 ROS2/Humble 配置与 SDK 查找，并新增 `cmake/livox_sdk.cmake`；旧源码、SDK 和编译产物均保留。新工作区的完整配置与原工程独立，不引用原工程的源码或 SDK。`humble_space` 根目录下的 DDS、Docker、文档同步正式版本；旧 scripts 名称仅委托新工作区。
+原 `fastlio-space` 未修改。原 `livox_space` 的 driver 只修改了 CMake 的默认 ROS2/Humble 配置与 SDK 查找，并新增 `cmake/livox_sdk.cmake`；旧源码、SDK 和编译产物均保留。新工作区的完整配置与原工程独立，不引用原工程的源码或 SDK。现行 DDS、Docker、文档和脚本均以本工作区为准；历史脚本名仅在 `scripts/backup/` 中保留。
 
 新副本还修正了 FAST-LIO 的退出处理：不再覆盖 rclcpp 自带的异步 SIGINT handler，避免在原 POSIX signal handler 内调用 shutdown() 导致 Ctrl+C 退出卡住。原有建图/持续跟踪主体保留；定位新增原点附近的启动重定位，详见 [启动重定位说明](doc/STARTUP_RELOCALIZATION.md)。
 
@@ -149,11 +205,12 @@ colcon build --symlink-install --cmake-args -DLIVOX_SDK_ROOT=
 默认 JSON 保持版本化、不直接编辑 IP。实机运行前从默认文件生成本机副本：
 
 ```bash
-# 无需 ROS / Docker / sudo；示例 IP 请换成目标机器真实地址
+# 只有配置创建无需 ROS / Docker / sudo；示例 IP 请换成真实地址
 bash scripts/init_local_config.sh --name jetson \
   --host-ip 192.168.123.18 --lidar-ip 192.168.123.114
 bash scripts/check_network.sh config/local/MID360.jetson.local.json
-bash scripts/run.sh mapping lidar_config:=config/local/MID360.jetson.local.json map_name:=lab_a
+bash scripts/run.sh mapping lidar_config:=config/local/MID360.jetson.local.json \
+  map_name:=lab_a publish_map:=true
 ```
 
 不传 `--name` 时生成 `config/local/MID360.local.json`；不传 IP 时仅复制默认地址，
@@ -239,8 +296,8 @@ bash scripts/run.sh localization \
 # 切换到另一个场景时只需换地图路径，不改 YAML：
 bash scripts/run.sh localization \
   map_path:=pcd_map/20260917_100000_123456_lab_b.pcd
-# 按需开启 RViz2，默认不开；兼容脚本也支持：
-bash scripts/run_localization_local.sh \
+# 按需开启计算端 RViz2，默认不开：
+bash scripts/run.sh localization \
   map_path:=pcd_map/20260916_160000_123456_lab_a.pcd --rviz
 # 已 source 的容器内也可直接启动：
 ros2 launch fast_lio mid360.launch.py mode:=localization \
@@ -259,6 +316,15 @@ ros2 launch fast_lio mid360.launch.py mode:=localization \
 初始位姿 `[x,y,z,yaw]`、重叠率、残差可从 `localization.matched_pose` / `matched_overlap` / `matched_rmse` 节点参数读取；失败后可调用 `/relocalize` 重试。完整状态、调参、边界与测试见 [启动重定位说明](doc/STARTUP_RELOCALIZATION.md)。显式 `relocalize:=false` 恢复原来的 YAML `localization.initial_pose` 与 `/initialpose` 直接播种方式；自动模式不接受直接位姿跳变。
 
 定位模式只读地图，发布 latched `/reference_map`，拒绝 `/map_save`。新图附带 `.pcd.json`，自动校验点数/文件校验和、标定/时间及预处理参数，拒绝容量截断地图；正式采集建议加 `map_metadata:=strict`。旧图默认兼容并告警，不宣称元数据已验证。建图和定位的 `preprocess`、标定外参及 IMU 协方差须保持一致；本工作区包含检查这些参数一致性的测试。不同场景必须使用各自的实际地图；重复结构、低质量地图或超出搜索范围不保证重定位成功。
+
+### NX 计算、AGX 独立显示
+
+按本文开头的常用指令，NX 用 `run.sh`，AGX 用 `rviz.sh`；各自在自己的终端执行。
+NX 建图传 `publish_map:=true`，地图路径只在 NX 定位启动时输入。
+
+两个 RViz 预设固定 camera_init；定位预设已添加 /reference_map 并使用 Transient Local。
+两端 DDS/domain 一致，不使用 ROS_LOCALHOST_ONLY=1。具体环境选择和图形容器
+约束见 [脚本说明](scripts/README.md)。原 fastlio.rviz 仍可作为自定义配置选择。
 
 原 GT 记录工具保留，也安装为 ROS 可执行脚本：
 
@@ -318,7 +384,7 @@ bash scripts/package.sh /其他目录/fastlio-mid360_jetson.zip
 ```
 
 包含源码、两套 SDK、正式 DDS/Docker/doc/scripts/tests 和 `pcd_map` 地图，
-排除 build/install/log/bags/records、Git/Python 缓存、旧 maps 与 reference、本地配置和私有环境文件。
+排除 build/install/log/bags/records、scripts/backup、Git/Python 缓存、旧 maps 与 reference、本地配置和私有环境文件。
 自动检测 ZIP CRC、第三方源码、SDK ELF、脚本权限与不安全路径，生成同名
 `.zip.sha256`，拷到 Jetson 后先 `sha256sum -c` 再用 Linux `unzip` 解压。
 ZIP 不包含 Docker 镜像或 apt 离线依赖，首次准备环境仍需网络。

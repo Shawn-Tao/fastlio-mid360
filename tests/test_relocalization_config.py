@@ -96,9 +96,12 @@ class RelocalizationConfigTests(unittest.TestCase):
         rviz = [action for action in actions if action.get('package') == 'rviz2']
         self.assertEqual(len(rviz), 1)
         self.assertEqual(rviz[0]['executable'], 'rviz2')
+        self.assertTrue(rviz[0]['arguments'][1].endswith('/rviz/localization.rviz'))
         actions = self.actions(mode='mapping', rviz='true')
         mapping = next(action for action in actions if action.get('package') == 'fast_lio')
         self.assertTrue(mapping['parameters'][1]['publish.map_en'])
+        rviz = next(action for action in actions if action.get('package') == 'rviz2')
+        self.assertTrue(rviz['arguments'][1].endswith('/rviz/mapping.rviz'))
         mapping = self.actions(mode='mapping', publish_map='true')[1]
         self.assertTrue(mapping['parameters'][1]['publish.map_en'])
         mapping = self.actions(mode='mapping', rviz='true', publish_map='false')[1]

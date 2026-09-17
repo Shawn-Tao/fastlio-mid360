@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 import shlex
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 HOST_KEYS = ('cmd_data_ip', 'push_msg_ip', 'point_data_ip', 'imu_data_ip', 'log_data_ip')
 
 

@@ -194,7 +194,7 @@ def _launch(context):
                         name='laser_mapping', output='screen',
                         parameters=[str(config), params]))
     if _boolean(context, 'rviz'):
-        rviz_config = args['rviz_cfg'] or str(fast_share / 'rviz' / 'fastlio.rviz')
+        rviz_config = args['rviz_cfg'] or str(fast_share / 'rviz' / ('localization.rviz' if localization else 'mapping.rviz'))
         actions.append(Node(package='rviz2', executable='rviz2',
                             arguments=['-d', rviz_config], output='screen'))
     if _boolean(context, 'record_bag'):

@@ -19,6 +19,7 @@ zip -q -r -y "$archive_path" "$workspace_name" -x \
   "$workspace_name/build/*" "$workspace_name/install/*" "$workspace_name/log/*" \
   "$workspace_name/bags/*" "$workspace_name/reference/*" "$workspace_name/maps/*" \
   "$workspace_name/records/*" "$workspace_name/Record_Path/*" \
+  "$workspace_name/scripts/backup" "$workspace_name/scripts/backup/*" \
   "$workspace_name/config/local/*" "$workspace_name/secrets/*" \
   '*/.git' '*/.git/*' '*/.agents/*' '*/.codex/*' '*/__pycache__/*' '*.pyc' '*.pyo' \
   '*/.vscode/*' '*/.idea/*' '*/.pytest_cache/*' '*/.mypy_cache/*' '*/.ruff_cache/*' \

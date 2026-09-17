@@ -1,4 +1,4 @@
-# Shared Bash/Zsh fragment; caller sets fastlio_workspace_dir.
+# Internal Bash/Zsh DDS fragment; caller sets fastlio_workspace_dir.
 case "${FASTLIO_DDS:-${RMW_IMPLEMENTATION:-fastdds}}" in
   fastdds|rmw_fastrtps_cpp)
     export RMW_IMPLEMENTATION=rmw_fastrtps_cpp

@@ -21,6 +21,7 @@ CMakeLists.txt text eol=lf
 *.json text eol=lf
 *.yaml text eol=lf
 *.yml text eol=lf
+*.rviz text eol=lf
 *.md text eol=lf
 *.rst text eol=lf
 *.txt text eol=lf

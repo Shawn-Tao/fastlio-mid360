@@ -12,7 +12,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT = ROOT / 'src/livox_ros_driver2/config/MID360.json'
-HELPER = ROOT / 'scripts/init_local_config.py'
+HELPER = ROOT / 'scripts/lib/init_local_config.py'
 spec = importlib.util.spec_from_file_location('local_config_test_helper', HELPER)
 helper = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(helper)
@@ -43,6 +43,10 @@ class GitRulesTests(unittest.TestCase):
     def test_required_sources_and_sdk_bytes_are_not_ignored(self):
         paths = (
             '.gitignore', '.gitattributes', 'README.md', 'colcon.meta',
+            'scripts/rviz.sh', 'scripts/lib/common.sh', 'scripts/lib/dds_env.sh',
+            'scripts/lib/in_container.sh', 'scripts/lib/init_local_config.py', 'scripts/lib/check_network.py',
+            'scripts/backup/run_mapping_local.sh', 'scripts/README.md',
+            'src/FAST_LIO/rviz/mapping.rviz', 'src/FAST_LIO/rviz/localization.rviz',
             'src/livox_ros_driver2/package.xml', 'src/FAST_LIO/package.xml',
             'src/livox_ros_driver2/config/MID360.json', 'src/FAST_LIO/config/mid360.yaml',
             'src/livox_ros_driver2/LICENSE.txt', 'src/FAST_LIO/LICENSE',
@@ -80,7 +84,8 @@ class GitRulesTests(unittest.TestCase):
                 self.assertTrue(self.ignored(path), path)
 
     def test_source_lf_and_binary_attributes(self):
-        for path in ('scripts/run.sh', 'scripts/setenv.zsh', 'scripts/init_local_config.py',
+        for path in ('scripts/run.sh', 'scripts/setenv.zsh', 'scripts/lib/init_local_config.py',
+                     'src/FAST_LIO/rviz/mapping.rviz', 'src/FAST_LIO/rviz/localization.rviz',
                      'src/FAST_LIO/CMakeLists.txt', 'src/FAST_LIO/src/laserMapping.cpp',
                      'src/livox_ros_driver2/config/MID360.json', '.gitignore'):
             result = subprocess.run(self.command + ['check-attr', 'text', 'eol', '--', path],

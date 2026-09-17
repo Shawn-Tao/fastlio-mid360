@@ -14,7 +14,8 @@ usage() {
     'Compile separately: bash scripts/build.sh (no PCD required).' \
     'Mapping:      bash scripts/run.sh mapping map_name:=lab_a' \
     'Localization: bash scripts/run.sh localization map_path:=pcd_map/scene.pcd search_radius:=3.0 --rviz' \
-    'Compatibility: scripts/run_mapping_local.sh and scripts/run_localization_local.sh accept the same options.' \
+    'Remote viewer only: bash scripts/rviz.sh mapping|localization (no driver or FAST-LIO).' \
+    'Historical aliases are archived in scripts/backup/; use this unified entry point.' \
     'If RViz selections are repeated, the last selection wins.'
 }
 mode=mapping
@@ -35,7 +36,7 @@ for argument in "$@"; do
   esac
 done
 if [[ -n "$rviz_argument" ]]; then launch_arguments+=("$rviz_argument"); fi
-source "$workspace_dir/scripts/common.sh"
+source "$workspace_dir/scripts/lib/common.sh"
 fastlio_dispatch run.sh "$mode" "${launch_arguments[@]}"
 if [[ ! -f "$workspace_dir/install/local_setup.bash" ]]; then
   echo "Build the workspace first: bash scripts/build.sh" >&2

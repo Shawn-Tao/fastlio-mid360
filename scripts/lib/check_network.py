@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only check: configured Livox host addresses must exist in the container."""
+"""Read-only check: configured Livox host addresses must exist in this namespace."""
 import ipaddress
 import json
 import subprocess

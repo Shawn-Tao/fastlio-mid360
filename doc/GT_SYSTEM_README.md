@@ -1,5 +1,53 @@
 # FAST-LIO GT 轨迹采集与重放（统一 Humble 工作区）
 
+## 常用指令：定位后录制一段轨迹
+
+首次部署/更新代码先在 NX 执行 `bash scripts/build.sh` 和 `bash scripts/test.sh`，
+编译无需地图。以下在各自工作区根目录执行，NX 已创建本地雷达配置并完成建图。
+
+NX 终端 A：定位并显式录制原始 rosbag：
+
+```bash
+bash scripts/run.sh localization \
+  lidar_config:=config/local/MID360.jetson.local.json \
+  map_path:=pcd_map/实际地图.pcd search_radius:=3.0 record_bag:=true
+```
+
+AGX：只显示定位，不启动计算端：
+
+```bash
+bash scripts/rviz.sh localization
+```
+
+NX 终端 B：进入与终端 A 相同的 ROS 环境，保持静止并检查状态：
+
+```bash
+source scripts/setenv.bash
+ros2 topic echo /localization/status --once --qos-durability transient_local
+ros2 topic echo /tracking/status --once --qos-durability transient_local
+```
+
+以上 source 用于 Bash，Zsh 换成 `setenv.zsh`；Docker 场景先进入对应容器。
+`--once` 只读取一次状态，并不会自动等待 ready。确认 localization 为 ready、
+tracking 为 tracking 且扫描贴合地图后，仍在终端 B 开始采集：
+
+```bash
+ros2 run fast_lio gt_record.py start --source manual --instr lab_01
+```
+
+完成本段任务后，在终端 B 停止轨迹录制：
+
+```bash
+ros2 run fast_lio gt_record.py stop
+```
+
+CSV 位于工作区 `records/`，原始 bag 位于 `bags/localization_<时间戳>/`；
+两者是独立开关。终端 A 正常 Ctrl+C 收尾节点和 bag。
+RViz 默认关闭，rosbag 也默认关闭，以上定位例子主动开启录包。
+两端 DDS/domain 必须一致；编译、建图和首次配置见 [主文档速查](../README.md)。
+
+## 系统说明
+
 适用于 `fastlio-mid360_space`；部署先读 [Jetson 指南](JETSON_DEPLOY.md)。
 源工程的历史算法/实验说明保留在原电脑 `reference/doc/`，不作为现行启动指令。
 此系统是基于 FAST-LIO 的轨迹估计和记录，不是经过外部真值设备验证的绝对真值。
@@ -12,9 +60,16 @@
 下面命令是编译完成后的运行命令，地图与搜索参数不传给 build。
 
 ```bash
-bash scripts/run.sh mapping map_name:=lab_a record_bag:=true
-# 正常 Ctrl+C → pcd_map/<启动时间戳>_lab_a.pcd，并收尾录包
-bash scripts/run.sh localization map_path:=pcd_map/实际地图.pcd record_bag:=true
+bash scripts/run.sh mapping lidar_config:=config/local/MID360.jetson.local.json \
+  map_name:=lab_a publish_map:=true record_bag:=true
+```
+
+正常 Ctrl+C 并等待保存 `pcd_map/<启动时间戳>_lab_a.pcd`、配套 JSON 和录包收尾后，
+另行启动定位（不要同时运行两套 driver）：
+
+```bash
+bash scripts/run.sh localization lidar_config:=config/local/MID360.jetson.local.json \
+  map_path:=pcd_map/实际地图.pcd search_radius:=3.0 record_bag:=true
 ```
 
 RViz2 默认关闭；建图/定位/重放脚本追加 `--rviz` 可开启，`--no-rviz` 可明确关闭，
