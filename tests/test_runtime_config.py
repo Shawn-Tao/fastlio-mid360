@@ -40,6 +40,30 @@ class RuntimeContracts(unittest.TestCase):
         self.assertGreater(a['pcd_save']['max_points'], 0)
         self.assertEqual(a['tracking'], b['tracking'])
 
+    def test_static_filter_is_archive_only_and_audited(self):
+        source = SOURCE.read_text()
+        archive = source.split('    void accumulate_map_frame()', 1)[1].split('    std::string parameter_json', 1)[0]
+        for expression in ('archive_->insert_frame', 'pos_lid.x()', 'last_position_std_', 'state_point.vel.norm()', 'angular_speed'):
+            self.assertIn(expression, archive)
+        self.assertIn('std::min(source->size(),archive_->frame_limit())', archive)
+        self.assertIn('source->size()-count', archive)
+        self.assertIn('Measures.imu', archive)
+        live = source.split('void map_incremental()', 1)[1].split('void publish_frame_world', 1)[0]
+        self.assertNotIn('archive_->', live)
+        self.assertNotIn('static_map.', live)
+        self.assertGreaterEqual(source.count('archive_->status_json()'), 2)
+        config = yaml.safe_load((ROOT / 'src/FAST_LIO/config/mid360.yaml').read_text())['/**']['ros__parameters']
+        policy = config['static_map']
+        self.assertTrue(policy['enabled'])
+        self.assertGreaterEqual(policy['min_observations'], 3)
+        self.assertGreater(policy['confirmation_seconds'], 1)
+        self.assertGreater(policy['candidate_ttl'], policy['confirmation_seconds'])
+        self.assertLessEqual(policy['ray_clearance'], config['pcd_save']['voxel_size']/2)
+        for name in policy:
+            self.assertIn('"static_map.' + name + '"', source)
+        localization = yaml.safe_load((ROOT / 'src/FAST_LIO/config/mid360_localization.yaml').read_text())['/**']['ros__parameters']
+        self.assertFalse(localization['static_map']['enabled'])
+
     def postprocess(self):
         path = ROOT / 'src/FAST_LIO/scripts/trajectory_csv.py'
         spec = importlib.util.spec_from_file_location('runtime_postprocess', path)

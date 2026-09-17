@@ -163,6 +163,11 @@ bash scripts/run.sh mapping lidar_config:=config/local/MID360.jetson.local.json 
 没有有效点云不创建空 PCD。默认 0.1 m 全局体素去重、2000000 点上限、60 s 后台
 检查点；容量告警时地图标记不完整。`/map_save` 只是入队，观察 /map_save/status
 直到 saved。PCD 和配套 .pcd.json 一起保留，定位建议 map_metadata:=strict。
+存图层默认跨帧确认和保守自由射线清理；刚启动地图会延后出现，未确认候选不存出。
+不会因遮挡/离开而删历史区域，不改变实时匹配 ikd-Tree。站定的人仍可能入图，离开后
+应慢速回看旧位置；static_filter:=false 可关闭对照，参数与动态场景验收见
+[静态存图过滤](STATIC_MAP_FILTER.md)。查看 /tracking/status 的 static_map 统计和 last_update_ms，
+现场测整体 CPU/峰值内存；不宣称保证清理所有行人或 Orin NX 实时性能。
 先修正本地旧 YAML 的窗口组合（当前默认 400 m/100 m），检查 /tracking/status。
 CSV 已持久化到工作区 records/，不是容器家目录。现场测试矩阵见
 [运行安全与验收](RUNTIME_SAFETY.md)，特别测保存时峰值内存、延迟和断流恢复。

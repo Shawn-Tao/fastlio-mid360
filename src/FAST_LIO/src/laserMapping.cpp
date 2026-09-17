@@ -73,6 +73,7 @@
 #include "map_storage.hpp"
 #include "startup_relocalization.hpp"
 #include "workspace_runtime.hpp"
+#include "static_map.hpp"
 #include <std_msgs/msg/string.hpp>
 #include <rcl_interfaces/msg/set_parameters_result.hpp>
 
@@ -1116,6 +1117,9 @@ public:
                 const auto cloud=map_snapshot(); const auto metadata=map_metadata(cloud->size());
                 const auto result=write_snapshot(cloud,metadata,map_file_path,map_revision_);
                 finish_success_=finish_success_ && result.success; std::cout<<result.message<<std::endl;
+            } else if(!localization_mode && pcd_save_en && archive_ && !archive_->size() && saved_revision_ && saved_revision_!=map_revision_) {
+                finish_success_=false;
+                std::cerr<<"Final confirmed archive is empty; no empty PCD written. Existing session checkpoint is STALE and is not a final cleaned map: "<<map_file_path<<std::endl;
             }
         } catch(const std::exception& e) { finish_success_=false; std::cerr<<"Session finalization failed: "<<e.what()<<std::endl; }
         return finish_success_;
@@ -1143,6 +1147,17 @@ private:
         this->declare_parameter<string>("record.dir",string(ROOT_DIR)+"../../records");
         this->declare_parameter<double>("publish.reference_map_voxel_size",0.5);
         this->declare_parameter<int>("publish.reference_map_max_points",100000);
+        this->declare_parameter<bool>("static_map.enabled",true);
+        for(const auto& p:std::vector<std::pair<std::string,double>>{
+            {"static_map.observation_interval",0.2},{"static_map.confirmation_seconds",1.2},
+            {"static_map.candidate_ttl",5.0},{"static_map.clear_seconds",1.0},{"static_map.clear_vote_ttl",3.0},
+            {"static_map.clear_max_range",15.0},{"static_map.endpoint_margin",0.5},{"static_map.ray_clearance",0.025},
+            {"static_map.max_clear_position_std",0.10},{"static_map.max_clear_speed",0.5},{"static_map.max_clear_angular_speed",0.3}})
+            this->declare_parameter<double>(p.first,p.second);
+        for(const auto& p:std::vector<std::pair<std::string,int>>{
+            {"static_map.min_observations",4},{"static_map.clear_observations",6},{"static_map.max_candidates",250000},
+            {"static_map.max_frame_points",100000},{"static_map.max_rays",256},{"static_map.max_ray_steps",600}})
+            this->declare_parameter<int>(p.first,p.second);
     }
     static M3D eigen_rotation(const fastlio_runtime::Rotation& r) {
         M3D result; for(int i=0;i<3;++i) for(int j=0;j<3;++j) result(i,j)=r[3*i+j]; return result;
@@ -1186,7 +1201,34 @@ private:
         if(integer("publish.reference_map_max_points")<1 || !std::isfinite(number("publish.reference_map_voxel_size")) || number("publish.reference_map_voxel_size")<=0)
             throw std::invalid_argument("Reference-map display limits must be positive");
         if(integer("pcd_save.max_points")<0) throw std::invalid_argument("pcd_save.max_points must be >= 0 (0 explicitly disables the cap)");
-        archive_=std::make_unique<fastlio_runtime::VoxelMap<PointType>>(number("pcd_save.voxel_size"),integer("pcd_save.max_points"));
+        fastlio_runtime::StaticMapOptions static_options;
+        for(const char* key:{"static_map.max_candidates","static_map.max_frame_points","static_map.max_rays","static_map.max_ray_steps",
+                            "static_map.min_observations","static_map.clear_observations"})
+            if(integer(key)<1 || integer(key)>std::numeric_limits<int>::max())
+                throw std::invalid_argument(std::string(key)+" must be a positive 32-bit count");
+        // The reference PCD and live ikd-Tree are never modified by this policy.
+        static_options.enabled=!localization_mode && this->get_parameter("static_map.enabled").as_bool();
+        static_options.min_observations=integer("static_map.min_observations");
+        static_options.clear_observations=integer("static_map.clear_observations");
+        static_options.observation_interval=number("static_map.observation_interval");
+        static_options.confirmation_seconds=number("static_map.confirmation_seconds");
+        static_options.candidate_ttl=number("static_map.candidate_ttl");
+        static_options.clear_seconds=number("static_map.clear_seconds");
+        static_options.clear_vote_ttl=number("static_map.clear_vote_ttl");
+        static_options.clear_max_range=number("static_map.clear_max_range");
+        static_options.endpoint_margin=number("static_map.endpoint_margin");
+        static_options.ray_clearance=number("static_map.ray_clearance");
+        static_options.max_candidates=integer("static_map.max_candidates");
+        static_options.max_frame_points=integer("static_map.max_frame_points");
+        static_options.max_rays=integer("static_map.max_rays");
+        static_options.max_ray_steps=integer("static_map.max_ray_steps");
+        for(const char* key:{"static_map.max_clear_position_std","static_map.max_clear_speed","static_map.max_clear_angular_speed"})
+            if(!std::isfinite(number(key)) || number(key)<=0) throw std::invalid_argument(std::string(key)+" must be finite and positive");
+        archive_=std::make_unique<fastlio_runtime::StaticVoxelMap<PointType>>(number("pcd_save.voxel_size"),integer("pcd_save.max_points"),static_options);
+        if(!localization_mode) RCLCPP_INFO(this->get_logger(),
+            "Archive static filter %s (live ikd-Tree unchanged): %d observations over %.2f s; clear %d observations over %.2f s, <= %.1f m, <= %zu rays/frame.",
+            static_options.enabled?"enabled":"disabled",static_options.min_observations,static_options.confirmation_seconds,
+            static_options.clear_observations,static_options.clear_seconds,static_options.clear_max_range,static_options.max_rays);
         gravity_alignment_=this->get_parameter("localization.relocalization.gravity_alignment").as_bool();
         const auto gravity=this->get_parameter("localization.map_gravity").as_double_array();
         if(gravity.size()!=3) throw std::invalid_argument("localization.map_gravity needs 3 values");
@@ -1208,10 +1250,37 @@ private:
     void accumulate_map_frame() {
         if(map_revision_==0) map_gravity_=V3D(state_point.grav[0],state_point.grav[1],state_point.grav[2]);
         const auto source=this->get_parameter("pcd_save.dense_input").as_bool() ? feats_undistort : feats_down_body;
-        for(const auto& p:*source) { PointType world=p; RGBpointBodyToWorld(&p,&world); archive_->insert(world); }
+        const auto count=std::min(source->size(),archive_->frame_limit());
+        archive_world_frame_.clear(); archive_world_frame_.reserve(count);
+        for(std::size_t i=0;i<count;++i) {
+            const auto& p=source->points[i]; PointType world=p;
+            RGBpointBodyToWorld(&p,&world); archive_world_frame_.push_back(world);
+        }
+        const double elapsed=lidar_end_time-last_archive_stamp_;
+        const double angular_speed=elapsed>0 && last_archive_stamp_>=0 ?
+            Eigen::AngleAxisd(last_archive_rotation_.transpose()*state_point.rot.toRotationMatrix()).angle()/elapsed :
+            std::numeric_limits<double>::infinity();
+        double peak_gyro=0;
+        for(const auto& imu:Measures.imu) {
+            const V3D gyro=V3D(imu->angular_velocity.x,imu->angular_velocity.y,imu->angular_velocity.z)-state_point.bg;
+            peak_gyro=gyro.allFinite()?std::max(peak_gyro,gyro.norm()):std::numeric_limits<double>::infinity();
+        }
+        // Deskewed endpoints are referenced to scan end, not to each beam's
+        // original firing origin. Only clear during slow, confident motion.
+        const bool allow_clear=elapsed>0 && elapsed<=0.5 && last_position_std_>=0 &&
+            last_position_std_<=this->get_parameter("static_map.max_clear_position_std").as_double() &&
+            state_point.vel.norm()<=this->get_parameter("static_map.max_clear_speed").as_double() &&
+            angular_speed<=this->get_parameter("static_map.max_clear_angular_speed").as_double() &&
+            peak_gyro<=this->get_parameter("static_map.max_clear_angular_speed").as_double();
+        if(!archive_->insert_frame(archive_world_frame_,{pos_lid.x(),pos_lid.y(),pos_lid.z()},lidar_end_time,allow_clear,source->size()-count)) {
+            RCLCPP_WARN_THROTTLE(this->get_logger(),*this->get_clock(),5000,
+                "Archive rejected frame (invalid origin or sensor timestamp); inspect static_map.invalid_frames in /tracking/status.");
+            return;
+        }
+        last_archive_rotation_=state_point.rot.toRotationMatrix(); last_archive_stamp_=lidar_end_time;
         ++map_revision_;
         if(!archive_->complete()) RCLCPP_WARN_THROTTLE(this->get_logger(),*this->get_clock(),5000,
-            "Map capacity reached (%zu points). New regions are NOT stored; metadata marks map incomplete. Increase pcd_save.max_points or voxel_size and rebuild the map.",archive_->size());
+            "Map/archive input capacity exceeded (%zu confirmed, %zu candidates). Metadata marks map incomplete; inspect /tracking/status and increase the relevant pcd_save/static_map bound or voxel_size, then rebuild the map.",archive_->size(),archive_->candidates());
     }
     std::string parameter_json(const rclcpp::Parameter& p) const {
         std::ostringstream out; out<<std::setprecision(17);
@@ -1228,11 +1297,12 @@ private:
     }
     std::string map_metadata(std::size_t points) const {
         std::ostringstream out; out<<std::setprecision(17);
-        out<<"{\"schema_version\":1,\"workspace_version\":\"runtime_safety_v1\",\"frame_id\":\"camera_init\",\"pose_frame\":\"IMU\",\"complete\":"
+        out<<"{\"schema_version\":1,\"workspace_version\":\"runtime_safety_v2_static_archive\",\"frame_id\":\"camera_init\",\"pose_frame\":\"IMU\",\"complete\":"
            <<(archive_->complete()?"true":"false")<<",\"points\":"<<points<<",\"snapshot_revision\":"<<map_revision_
            <<",\"build_revision\":"<<fastlio_runtime::json_string(FASTLIO_BUILD_REVISION)
            <<",\"input_points\":"<<archive_->input()<<",\"capacity_rejected_points\":"<<archive_->rejected()
-           <<",\"invalid_input_points\":"<<archive_->invalid()
+           <<",\"invalid_input_points\":"<<archive_->invalid()<<",\"latest_accepted_sensor_stamp\":"<<last_sensor_stamp_
+           <<",\"static_map\":"<<archive_->status_json()
            <<",\"gravity\":["<<map_gravity_.x()<<','<<map_gravity_.y()<<','<<map_gravity_.z()
            <<"],\"parameters\":{";
         bool first=true;
@@ -1240,7 +1310,12 @@ private:
             "preprocess.operator_filter_en","preprocess.operator_filter_rear_angle","preprocess.operator_filter_range_min","preprocess.operator_filter_range_max",
             "mapping.extrinsic_T","mapping.extrinsic_R","mapping.extrinsic_est_en","mapping.acc_cov","mapping.gyr_cov","mapping.b_acc_cov","mapping.b_gyr_cov",
             "common.time_sync_en","common.time_offset_lidar_to_imu","point_filter_num","feature_extract_enable","filter_size_surf","filter_size_map",
-            "pcd_save.voxel_size","pcd_save.dense_input","cube_side_length","mapping.det_range"}) {
+            "pcd_save.voxel_size","pcd_save.dense_input","cube_side_length","mapping.det_range",
+            "static_map.enabled","static_map.min_observations","static_map.observation_interval","static_map.confirmation_seconds",
+            "static_map.candidate_ttl","static_map.clear_observations","static_map.clear_seconds","static_map.clear_vote_ttl",
+            "static_map.clear_max_range","static_map.endpoint_margin","static_map.ray_clearance","static_map.max_candidates",
+            "static_map.max_frame_points","static_map.max_rays","static_map.max_ray_steps","static_map.max_clear_position_std",
+            "static_map.max_clear_speed","static_map.max_clear_angular_speed"}) {
             if(!first) out<<','; first=false; out<<fastlio_runtime::json_string(key)<<':'<<parameter_json(this->get_parameter(key));
         }
         out<<"}}"; return out.str();
@@ -1274,7 +1349,7 @@ private:
     bool request_save(std::string& message) {
         poll_save();
         if(save_worker_.valid()) {message="A map save is already running";return false;}
-        if(!archive_->size()) {message="No mapping points available; no PCD written.";return false;}
+        if(!archive_->size()) {message="No mapping points available: no confirmed voxels; "+std::to_string(archive_->candidates())+" candidates pending. No PCD written.";return false;}
         try {
             const auto cloud=map_snapshot(); const auto metadata=map_metadata(cloud->size());
             const auto path=map_file_path; const auto revision=map_revision_;
@@ -1293,7 +1368,8 @@ private:
            <<",\"last_sensor_stamp\":"<<std::setprecision(17)<<last_sensor_stamp_
            <<",\"position_std\":"<<(std::isfinite(last_position_std_) && last_position_std_>=0?std::to_string(last_position_std_):"null")
            <<",\"mean_residual\":"<<(std::isfinite(res_mean_last)?std::to_string(res_mean_last):"null")
-           <<",\"map_points\":"<<archive_->size()<<",\"map_complete\":"<<(archive_->complete()?"true":"false")<<"}";
+           <<",\"map_points\":"<<archive_->size()<<",\"map_complete\":"<<(archive_->complete()?"true":"false")
+           <<",\"static_map\":"<<archive_->status_json()<<"}";
         std_msgs::msg::String message; message.data=out.str(); pubTrackingStatus_->publish(message);
     }
     void reject_tracking_frame(const std::string& reason,int points) {
@@ -1879,7 +1955,10 @@ private:
 private:
     bool relocalization_enabled_=true;
     std::unique_ptr<fastlio_runtime::Health> health_;
-    std::unique_ptr<fastlio_runtime::VoxelMap<PointType>> archive_;
+    std::unique_ptr<fastlio_runtime::StaticVoxelMap<PointType>> archive_;
+    PointCloudXYZI archive_world_frame_;
+    M3D last_archive_rotation_=M3D::Identity();
+    double last_archive_stamp_=-1;
     std::future<SaveResult> save_worker_;
     std::uint64_t map_revision_=0,saved_revision_=0,record_total_poses_=0;
     std::string last_tracking_reason_="waiting_for_sensor_data";

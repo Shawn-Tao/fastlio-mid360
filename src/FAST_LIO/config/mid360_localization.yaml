@@ -122,6 +122,9 @@
             pcd_save_en: false
             interval: -1
 
+        static_map:
+            enabled: false              # archive policy is mapping-only; reference PCD is read-only
+
         tracking:
             min_points: 20
             min_ratio: 0.05

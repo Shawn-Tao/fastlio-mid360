@@ -294,9 +294,16 @@ pcd_map/20260916_160000_123456_lab_a.pcd
 
 `map_dir:=/其他目录` 可以改输出目录；`map_output:=/完整路径/new_map.pcd` 指定新会话路径，拒绝启动时已存在的目标。PCD 和配套 `.pcd.json` 各自临时写入、同步和原子替换。`/map_save` 成功仅表示快照已入队，必须查看 `/map_save/status` 的 saved/failed；同时只允许一个后台保存任务。默认每 60 s 检查点，正常退出保存最新快照；空地图不生成文件。
 
-无有效建图数据时，`/map_save` 返回 `No mapping points available`，Ctrl+C 不创建空 PCD；不应预期出现有效地图或里程计数据。无论 `publish.map_en` 或扫描显示开关是否开启，只要 `pcd_save.pcd_save_en=true` 就会累积建图结果。
+无已确认建图点时，`/map_save` 返回 `No mapping points available` 并提示待确认候选数，Ctrl+C 不创建空 PCD。刚开始时可信里程计可能已输出，但地图尚在确认；不会退出时把候选强行存入。无论 `publish.map_en` 或扫描显示开关是否开启，只要 `pcd_save.pcd_save_en=true` 就会累积建图结果。
 
 `record_bag` 默认 false，主动开启后保存到 `bags/<mode>_<时间戳>/`；可用 `bag_dir` 和 `extra_bag_topics` 配置。每会话一份地图，不使用 `pcd_save.interval` 分片。存图默认从去畸变扫描输入、0.1 m 全局体素去重，独立于实时匹配 0.5 m 滤波；默认最多 2000000 点，容量不足会告警并标记地图不完整，不静默删除旧区域。配置在本地 YAML 调整。
+
+默认增加**存图层时序静态过滤**：新体素至少 4 次独立观察、跨度 1.2 s 才确认；
+已有点仅在低速、可靠位姿下，被有效回波前的自由射线至少 6 次穿过、跨度 1 s 才清除。
+遮挡或没看到不删图，历史区域不按年龄删除。只改变存图缓存和建图显示，实时 ikd-Tree/
+EKF 不变，定位参考 PCD 只读。`static_filter:=false` 关闭作对照；本地 YAML 可调整
+`static_map` 段。站定的人仍可能入图，离开后需要重访、真正照到旧位置，不能保证全部剔除。
+参数、状态、性能边界与现场验收见 [静态存图过滤](doc/STATIC_MAP_FILTER.md)。
 
 无显示需求时全图发布默认关闭；建图 `--rviz` 自动开启有限显示副本，远程 PC 可传 `publish_map:=true`。默认有订阅者才每 5 s 发布，显示最多 100000 点，定位 reference_map 也用单独显示副本，不改变匹配地图。
 
@@ -386,6 +393,7 @@ ros2 launch fast_lio mid360.launch.py --show-args
 - Bash / Zsh 语法与 DDS 环境、容器自动选择/歧义拒绝、含空格路径、Docker 入口和 ZIP 输出保护；这些工具测试使用本地假 Docker，不连接 daemon。
 - 真实 Git 忽略/属性匹配（临时元数据，不初始化项目）、本地配置独占创建、IP 联动/校验、默认配置不变、相对 JSON/YAML 启动与非法 JSON 拒绝。
 - 有界搜索/启动门控、重力对齐、持续跟踪状态、窗口校验、体素容量和快照、CSV 持久化与异常尾行恢复、元数据兼容和完整性拒绝。
+- 存图时序确认、自由空间重复证据、遮挡/端点保护、历史区域保留、候选/帧输入/射线有界、关闭过滤兼容旧机制；合成策略测试不代替实机动态场景验收。
 
 测试不录 bag、不写参考地图、不发送真实雷达指令；会生成测试日志，运行调试日志默认关闭。启动自检不能代替实际雷达收包、IMU 初始化、连续点云配准、建图精度或 ARM64 原生编译验证。日志见 `log/smoke/`，构建日志见 `log/latest_build/`。最新改动的实际验证边界见 [VERIFICATION.md](VERIFICATION.md)。
 

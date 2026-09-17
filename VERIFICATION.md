@@ -3,6 +3,40 @@
 日常指令在 [主 README 开头](README.md)、[脚本说明开头](scripts/README.md) 和
 [Jetson 指南开头](doc/JETSON_DEPLOY.md)；本文件只记录验证范围，不替代启动指南。
 
+## 存图层时序静态过滤（2026-09-17，最新源码）
+
+- 新增 ROS/PCL 无关的 static_map.hpp：候选多次/时间跨度确认、同帧去重、有限
+  自由射线反证、近回波/端点/邻域保护、负证据清零与过期、候选 TTL/LRU 有界回收。
+  已确认历史区域不按年龄删除；站定行人仍可能确认，清理取决于真实可见性。
+- 仅接入独立存图缓存/显示/PCD，不修改 EKF 和实时 ikd-Tree，不写定位参考 PCD。
+  增加低速/位姿协方差/相邻位姿转速及扫描 IMU 峰值转速门控；坐标变换缓存也有界。
+  候选/确认/帧输入截断锁存 complete=false；端点被截断的帧禁止任何自由空间清理。
+- 默认建图启用，static_filter:=false 保留原体素/原始追加对照；JSON 加入全部门限、
+  策略和统计，/tracking/status 加入 static_map。schema=1 旧图兼容规则不变。
+  TF 初始化/启动参数保护顺序不变；过滤参数运行时修改仍被拒绝。
+- GCC 13 / C++17 / -O2 / -Wall -Wextra -Werror 原生新策略测试通过：
+  走动/短暂停留、站定后离开、遮挡/端点保护、正证据重置、负证据过期、历史保留、
+  帧重复/缓存及射线上限、调用方省略端点、无效输入/时间、关闭兼容、重新确认，
+  以及固定随机种子的 400 组通用 3-D/负方向射线遍历。原运行策略、启动重定位策略
+  原生回归也通过。新策略 ASan/UBSan 检查通过，关闭 LeakSanitizer（当前执行环境限制）。
+- 合成主机基准：先积累 500000 个全局点，再输入 20000 点 × 300 帧；测得中位
+  12.41 ms、P95 21.98 ms、最大 31.17 ms，进程峰值 RSS 68568 KiB。
+  测试使用简化 double Point，不含 ROS/PCL/EKF、坐标变换、显示或保存，不是 Orin NX
+  性能/整机内存保证，真实场景和共享主机负载也会改变结果。
+  从工作区根目录以 C++17 / -O2 编译 static_map_test.cpp 后，执行该测试程序的
+  `--benchmark-large` 选项并用 `/usr/bin/time -v` 观察独立进程峰值内存即可复现。
+- 55 项主机 Python 回归、8 项 CMake SDK 架构选择/拒绝、96 个文档 Bash 代码块/
+  脚本路径、三份速查区一致性、Python 语法和 git diff --check 通过。
+  全量 unittest 尝试的其余 10 项真实 launch 测试因缺少 ROS launch 模块未能执行，
+  不把 action stubs 当成真实 ROS。默认雷达 JSON SHA256 与改动前一致，SDK 未修改。
+- CTest 增加 archive_static_map_policy，完整 ROS 环境现在登记 17 项；真实 smoke
+  增加两模式过滤状态与运行时开关拒绝检查，但本机无 Humble/Eigen/PCL，Docker WSL
+  integration 不可用，**未完成最新 Humble/ARM64 节点编译或真实 smoke**。
+  Jetson 须重新 build/test，再按 [动态场景验收](doc/STATIC_MAP_FILTER.md) 对照实测。
+
+部署包是待 Jetson 编译验收的源码包；不携带本机配置、轨迹/录包、旧 build/install/log。
+文档已同步默认过滤、对照开关、性能/误删边界，未新增第三方动态过滤依赖。
+
 ## TF QoS 初始化与参数保护顺序修复（2026-09-17）
 
 - 针对实机日志中 `qos_overrides./tf.publisher.durability` 被 startup-only 回调

@@ -98,6 +98,11 @@ bash scripts/init_local_config.sh --name jetson \
 `backup/` 保存 5 个历史别名，可回看/手动使用，不进入 Docker 上下文或部署 ZIP。
 没有删除历史脚本，也没有把必需 helper 当作备份。
 
+建图 `run.sh mapping` 默认启用独立存图层时序确认/自由空间清理；`static_filter:=false`
+关闭对照（建图/replay 建图专用，定位参考图只读）。不用增加新的脚本，现行 run.sh
+直接转发该参数。查看 /tracking/status 的 static_map 统计；站定行人仍可能进入地图，
+离开后须慢速重访旧位置。门限与现场验收见 [静态存图过滤](../doc/STATIC_MAP_FILTER.md)。
+
 ## 环境选择和高级用法
 
 `env.sh` 加载 Humble、可选的本工作区 install overlay 及与启动脚本相同的 DDS。

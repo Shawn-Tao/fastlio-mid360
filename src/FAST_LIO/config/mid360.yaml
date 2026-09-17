@@ -95,10 +95,31 @@
         pcd_save:
             pcd_save_en: true
             interval: -1                 # compatibility only; one complete session map, no fragments
-            voxel_size: 0.1              # representative actual point nearest voxel center; 0 = legacy raw mode
+            voxel_size: 0.1              # 0 = legacy raw mode ONLY with static_filter:=false
             dense_input: true            # saved-map input, independent of publish.dense_publish_en
-            max_points: 2000000          # 0 explicitly disables cap; cap reached => metadata complete=false
+            max_points: 2000000          # 0 (unbounded) ONLY with static_filter:=false; overflow => complete=false
             checkpoint_interval_sec: 60.0 # background checkpoint; 0 disables, Ctrl+C still finalizes
+
+        # Archive/static PCD + mapping display only. Never filters the live ikd-Tree.
+        static_map:
+            enabled: true
+            min_observations: 4
+            observation_interval: 0.2    # one support/miss per voxel per interval, not per point
+            confirmation_seconds: 1.2    # additionally require this observation time span
+            candidate_ttl: 5.0           # unconfirmed only; historical confirmed map NEVER ages out
+            max_candidates: 250000
+            max_frame_points: 100000
+            clear_observations: 6
+            clear_seconds: 1.0
+            clear_vote_ttl: 3.0          # reset negative votes after a visibility gap
+            clear_max_range: 15.0
+            endpoint_margin: 0.5
+            ray_clearance: 0.025         # stored actual point must be this close to free ray
+            max_rays: 256
+            max_ray_steps: 600
+            max_clear_position_std: 0.10 # KF sanity, NOT a certified uncertainty bound
+            max_clear_speed: 0.5         # m/s, scan-end origin approximation
+            max_clear_angular_speed: 0.3 # rad/s
 
         tracking:
             min_points: 20

@@ -28,6 +28,9 @@ bash scripts/run.sh localization lidar_config:=config/local/MID360.jetson.local.
 同次运行的 `/map_save` 和 Ctrl+C 会更新同一文件，不会自动覆盖之前运行生成的地图。
 配套 `<文件名>.pcd.json` 保存标定/过滤/参考重力、完整性、点数及 CRC32。
 默认 0.1 m 全局体素去重、2000000 点容量上限；容量不足标记不完整并拒绝验证定位。
+默认存图层跨帧确认、保守自由空间清理；未确认候选不会导出，静止行人仍可能入图，
+人离开后需要有效回波重复照过旧位置。不会修改实时 ikd-Tree 或定位参考 PCD。
+关闭对照 static_filter:=false，参数/统计/边界见 [静态存图过滤](../doc/STATIC_MAP_FILTER.md)。
 `/map_save` 成功只是快照入队，等 `/map_save/status` saved；默认每 60 s 检查点。
 定位必须显式指定 `map_path:=...`，不自动选择最新地图，不默认加载 test.pcd。
 正式定位建议 map_metadata:=strict；auto 兼容没有 JSON 的旧 PCD，但会警告。

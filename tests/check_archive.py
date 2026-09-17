@@ -55,6 +55,7 @@ def check_archive(path):
             'src/FAST_LIO/include/bounded_relocalization.hpp',
             'src/FAST_LIO/include/startup_relocalization.hpp',
             'src/FAST_LIO/include/workspace_runtime.hpp', 'src/FAST_LIO/test/runtime_test.cpp',
+            'src/FAST_LIO/include/static_map.hpp', 'src/FAST_LIO/test/static_map_test.cpp', 'doc/STATIC_MAP_FILTER.md',
             'src/FAST_LIO/scripts/trajectory_csv.py', 'tests/test_runtime_config.py',
             'doc/RUNTIME_SAFETY.md',
             'src/FAST_LIO/test/relocalization_test.cpp', 'doc/STARTUP_RELOCALIZATION.md',

@@ -62,6 +62,22 @@ class RelocalizationConfigTests(unittest.TestCase):
         self.assertEqual(len(actions), 2)
         self.assertEqual(actions[1]['parameters'][1]['localization.map_path'], str(ROOT / 'pcd_map/test.pcd'))
 
+    def test_static_filter_archive_only_override(self):
+        for mode in ('mapping', 'replay'):
+            for value, expected in (('true', True), ('false', False)):
+                node = self.actions(mode=mode, static_filter=value)[-1]
+                self.assertEqual(node['parameters'][1]['static_map.enabled'], expected)
+            self.assertNotIn('static_map.enabled', self.actions(mode=mode)[-1]['parameters'][1])
+        options = self.actions(mode='localization', map_path=str(ROOT / 'pcd_map/test.pcd'))[-1]['parameters'][1]
+        self.assertFalse(options['static_map.enabled'])
+        with self.assertRaisesRegex(ValueError, 'mapping-only'):
+            self.actions(mode='localization', map_path=str(ROOT / 'pcd_map/test.pcd'), static_filter='true')
+        with self.assertRaisesRegex(ValueError, 'mapping-only'):
+            self.actions(mode='replay', config_file='mid360_localization.yaml',
+                         map_path=str(ROOT / 'pcd_map/test.pcd'), static_filter='false')
+        with self.assertRaisesRegex(ValueError, 'true or false'):
+            self.actions(mode='mapping', static_filter='yes')
+
     def test_radius_and_manual_override(self):
         actions = self.actions(mode='localization', map_path=str(ROOT / 'pcd_map/test.pcd'),
                                search_radius='2.5', relocalize='true')

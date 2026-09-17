@@ -10,6 +10,7 @@ usage() {
     '  -h, --help   Show this help without starting ROS or Docker.' \
     'The existing rviz:=true / rviz:=false launch arguments remain supported.' \
     'Mapping --rviz enables bounded map display; publish_map:=true supports remote RViz.' \
+    'Mapping static filtering defaults on (archive only); static_filter:=false is the legacy comparison.' \
     'Verified localization: map_metadata:=strict; CSV defaults to records/, override record_dir:=...' \
     'Compile separately: bash scripts/build.sh (no PCD required).' \
     'Mapping:      bash scripts/run.sh mapping map_name:=lab_a' \

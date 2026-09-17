@@ -114,11 +114,16 @@ def _launch(context):
     params = {'use_sim_time': _boolean(context, 'use_sim_time'),
               'localization.mode': localization}
     if not localization:
+        if args['static_filter'] != 'auto':
+            params['static_map.enabled'] = _boolean(context, 'static_filter')
         side = config_params.get('cube_side_length', 400.0)
         detection = config_params.get('mapping', {}).get('det_range', 100.0)
         if not math.isfinite(side) or not math.isfinite(detection) or detection <= 0 or side <= 3 * detection:
             raise ValueError('cube_side_length must be > 3 * mapping.det_range; invalid stationary local-map window')
     if localization:
+        if args['static_filter'] != 'auto':
+            raise ValueError('static_filter is mapping-only; localization reference maps are read-only')
+        params['static_map.enabled'] = False
         if not args['map_path'].strip():
             raise ValueError('Localization requires an explicit map_path:=/path/to/scene.pcd launch argument; no default map is selected.')
         reference = Path(args['map_path']).expanduser().resolve()
@@ -224,6 +229,7 @@ def generate_launch_description():
         'map_output': ('', 'Advanced override: new full .pcd output path; shared by /map_save and Ctrl+C'),
         'rviz': ('false', 'Start RViz (requires a working display)'),
         'publish_map': ('auto', 'Mapping display: auto enables bounded map when RViz starts; true supports remote RViz; false disables'),
+        'static_filter': ('auto', 'Mapping/archive-only temporal static filter; auto uses YAML (default enabled); false restores legacy voxel archive'),
         'rviz_cfg': ('', 'Optional RViz configuration path'),
         'use_sim_time': ('false', 'Set true when replaying a bag with --clock'),
         'record_bag': ('false', 'Record raw LiDAR, IMU and odometry; opt-in to avoid unexpected disk use'),

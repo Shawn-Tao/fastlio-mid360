@@ -6,6 +6,7 @@ Checks TF/QoS initialization and the runtime parameter guard in both modes.
 This is a startup test, not a mapping-accuracy test.
 """
 import os
+import json
 from pathlib import Path
 import signal
 import subprocess
@@ -43,7 +44,7 @@ def check_runtime_parameter_guard(node):
     assert any(info.node_name == 'laser_mapping' and info.topic_type == 'tf2_msgs/msg/TFMessage'
                for info in tf_publishers), 'FAST-LIO TF publisher unavailable'
     tf_qos = 'qos_overrides./tf.publisher.durability'
-    names = [tf_qos, 'tracking.min_ratio', 'record.note', 'record.sample_every_n']
+    names = [tf_qos, 'tracking.min_ratio', 'record.note', 'record.sample_every_n', 'static_map.enabled']
     original = parameter_request(node, GetParameters, 'get_parameters',
                                  GetParameters.Request(names=names)).values
     assert len(original) == len(names), original
@@ -51,6 +52,7 @@ def check_runtime_parameter_guard(node):
     assert original[1].type == ParameterType.PARAMETER_DOUBLE, original[1]
     assert original[2].type == ParameterType.PARAMETER_STRING, original[2]
     assert original[3].type == ParameterType.PARAMETER_INTEGER, original[3]
+    assert original[4].type == ParameterType.PARAMETER_BOOL, original[4]
     descriptors = parameter_request(node, DescribeParameters, 'describe_parameters',
                                     DescribeParameters.Request(names=[tf_qos])).descriptors
     assert len(descriptors) == 1 and descriptors[0].read_only, 'TF QoS must remain read-only'
@@ -63,12 +65,15 @@ def check_runtime_parameter_guard(node):
             string_value='volatile' if original[0].string_value == 'transient_local' else 'transient_local')),
         Parameter(name=names[3], value=ParameterValue(
             type=ParameterType.PARAMETER_INTEGER, integer_value=0)),
+        Parameter(name=names[4], value=ParameterValue(
+            type=ParameterType.PARAMETER_BOOL, bool_value=not original[4].bool_value)),
     ]
     results = parameter_request(node, SetParameters, 'set_parameters',
                                 SetParameters.Request(parameters=forbidden)).results
-    assert len(results) == 3 and all(not result.successful for result in results), results
+    assert len(results) == 4 and all(not result.successful for result in results), results
     assert 'startup-only' in results[0].reason, results[0]
     assert 'positive integer' in results[2].reason, results[2]
+    assert 'startup-only' in results[3].reason, results[3]
     unchanged = parameter_request(node, GetParameters, 'get_parameters',
                                   GetParameters.Request(names=names)).values
     assert list(unchanged) == list(original), 'Rejected writes changed parameters'
@@ -84,11 +89,11 @@ def check_runtime_parameter_guard(node):
                                     SetParameters.Request(parameters=allowed)).results
         assert len(results) == 2 and all(result.successful for result in results), results
         updated = parameter_request(node, GetParameters, 'get_parameters',
-                                    GetParameters.Request(names=names[2:])).values
+                                    GetParameters.Request(names=names[2:4])).values
         assert len(updated) == 2 and updated[0].string_value == 'smoke_parameter_guard', updated
         assert updated[1].integer_value == original[3].integer_value + 1, updated
     finally:
-        restore = [Parameter(name=name, value=value) for name, value in zip(names[2:], original[2:])]
+        restore = [Parameter(name=name, value=value) for name, value in zip(names[2:4], original[2:4])]
         results = parameter_request(node, SetParameters, 'set_parameters',
                                     SetParameters.Request(parameters=restore)).results
         assert len(results) == 2 and all(result.successful for result in results), results
@@ -159,6 +164,9 @@ def check_mode(node, mode, lidar_config=None):
     subscription = None
     status_subscription = odometry_subscription = None
     statuses, odometry = [], []
+    tracking = []
+    tracking_subscription = node.create_subscription(String, '/tracking/status', tracking.append,
+        QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
     if mode == 'localization':
         qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         subscription = node.create_subscription(PointCloud2, '/reference_map', reference.append, qos)
@@ -185,7 +193,7 @@ def check_mode(node, mode, lidar_config=None):
                 if ('/map_save' in services and '/start_path_record' in services
                         and '/stop_path_record' in services and '/Odometry' in topics
                         and '/tf' in topics and 'Node init finished.' in log_path.read_text()
-                        and '/tracking/status' in topics and '/map_save/status' in topics
+                        and '/tracking/status' in topics and '/map_save/status' in topics and tracking
                         and (mode != 'localization' or (reference and statuses))
                         and (not lidar_config or 'Init lds lidar success!' in log_path.read_text())):
                     break
@@ -197,6 +205,9 @@ def check_mode(node, mode, lidar_config=None):
             assert any(info.topic_type == 'livox_ros_driver2/msg/CustomMsg' for info in lidar), lidar
             assert any(info.topic_type == 'sensor_msgs/msg/Imu' for info in imu), imu
             check_runtime_parameter_guard(node)
+            archive = json.loads(tracking[-1].data)['static_map']
+            assert archive['enabled'] == (mode == 'mapping'), archive
+            assert archive['confirmed'] == 0 and archive['candidates'] == 0, archive
             if mode == 'mapping':
                 client = node.create_client(Trigger, '/map_save')
                 try:
@@ -209,7 +220,6 @@ def check_mode(node, mode, lidar_config=None):
                     node.destroy_client(client)
             if mode == 'localization':
                 assert reference[0].width * reference[0].height > 0, 'Empty reference PCD'
-                import json
                 assert json.loads(statuses[-1].data)['state'] == 'waiting_for_imu', statuses[-1]
                 assert not odometry, 'Uninitialized localization published odometry'
                 record = node.create_client(Trigger, '/start_path_record')
@@ -242,6 +252,7 @@ def check_mode(node, mode, lidar_config=None):
                   + ('; reference PCD loaded and map_save is read-only' if reference else ''), flush=True)
         finally:
             forced = stop_process(process)
+            node.destroy_subscription(tracking_subscription)
             if subscription is not None:
                 node.destroy_subscription(subscription)
             if status_subscription is not None:
