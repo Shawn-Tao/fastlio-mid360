@@ -3,6 +3,26 @@
 日常指令在 [主 README 开头](README.md)、[脚本说明开头](scripts/README.md) 和
 [Jetson 指南开头](doc/JETSON_DEPLOY.md)；本文件只记录验证范围，不替代启动指南。
 
+## 本机独立 Python 点云验证环境（2026-09-18）
+
+- 本机 Linux x86_64 安装 uv 0.12.16、受管理 Python 3.12.14 和工具专用 .venv；
+  uv、解释器、依赖/绘图缓存仅写项目本地目录，不修改系统 Python、用户 shell 配置、
+  ROS 环境或实机 IP。安装前后系统解释器、shell 启动文件及既有 README 改动哈希一致。
+- 锁文件固定实际依赖；NumPy 2.5.3、SciPy 1.18.1、Matplotlib 3.11.2、
+  Open3D CPU 0.19.0 导入、CPU 几何/KDTree、无界面绘图通过。
+  只读加载 map_bak 中三张 PCD，分别为 25380、76480、43626 点，
+  XYZ 有限且点数与 JSON 一致；这仅证明环境可用，不是地图质量/定位精度结论。
+- 离线重复执行 setup.sh 通过，无须重新下载。COLCON_IGNORE 隔离离线工具，
+  不改变 ROS 编译链；新环境测试不下载、不依赖本机 .venv，旧 Python 可跳过 TOML 检查。
+- .local_tools/、.venv/、venv/、.uv-cache/ 和本机评估报告同步排除 Git、
+  Docker 上下文及部署 ZIP；实际 Git 忽略检查、打包/归档完整性检查通过。
+  部署检查使用临时 ZIP，不覆盖既有 Jetson 包，只携带可复建的小体积工具源码/清单。
+- 67 项主机 Python 回归通过，包含新增 4 项环境入口/归档保护测试；
+  本次改动文件空白检查通过。既有 README 两处行尾空格保持不动。
+  不执行 git add/commit/push，不修改地图，不开展后续定量评估；提交由用户操作。
+- 本次未新增真实 ROS/ARM64 编译、Jetson 性能或地图质量验证。操作入口见
+  [本机点云验证环境](tools/map_eval/README.md)。
+
 ## 默认采用放宽存图配置（2026-09-18，最新源码）
 
 - 按用户要求，把前一版仅作为测试例子的放宽组改为默认：入图 3 次、跨度 0.6 s，

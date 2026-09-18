@@ -26,3 +26,8 @@ config/local
 .env
 .env.*
 secrets
+.local_tools
+**/.venv
+**/venv
+**/.uv-cache
+tools/map_eval/results

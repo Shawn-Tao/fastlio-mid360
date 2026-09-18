@@ -40,6 +40,16 @@ driver 的旧 `package.xml` 忽略规则已去除，两份包清单都必须提�
 不会在项目中自动初始化仓库。注意 `.gitignore` 不会停止跟踪已经提交的文件，
 如需处理已跟踪的本地副本，要明确检查后单独移出索引，保留磁盘副本。
 
+## 本机点云验证环境
+
+本机点云验证使用 `tools/map_eval/` 的独立 uv 环境，与 ROS 编译/运行环境分开。
+只跟踪工具源码、说明、pyproject.toml、uv.lock、.python-version、COLCON_IGNORE；
+不跟踪根目录 .local_tools/（含 uv、独立 Python 和下载/运算缓存）、任何 .venv/、venv/、
+.uv-cache/ 以及 tools/map_eval/results/ 的本机报告。部署 ZIP 和 Docker 上下文同样排除它们。
+不提交、不跨机器复制 Python 环境本体，在目标电脑按锁文件重新搭建。
+本次配置不自动执行 git add/commit；由用户确认小体积源码/元数据后自行提交。
+安装和检查入口见 [本机点云验证环境](../tools/map_eval/README.md)。
+
 ## 换行与大文件
 
 `.gitattributes` 将脚本、源码、CMake、ROS 接口和文本配置的 Git checkout 统一为 LF；

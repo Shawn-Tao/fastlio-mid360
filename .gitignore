@@ -48,6 +48,12 @@
 /src/FAST_LIO/Log/*.pdf
 
 # Python / test caches.
+# Local uv executable, managed Python, downloads and caches are never source.
+/.local_tools/
+.venv/
+venv/
+.uv-cache/
+/tools/map_eval/results/
 __pycache__/
 *.py[cod]
 .pytest_cache/

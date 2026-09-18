@@ -60,6 +60,10 @@ class GitRulesTests(unittest.TestCase):
             'pcd_map/test.pcd', 'pcd_map/README.md', 'pcd_map/COLCON_IGNORE',
             'pcd_map/maps.yaml', 'pcd_map/maps.sha256', 'config/README.md',
             'config/COLCON_IGNORE', 'tests/MID360_loopback.json', '.env.example',
+            'tools/map_eval/pyproject.toml', 'tools/map_eval/uv.lock',
+            'tools/map_eval/.python-version', 'tools/map_eval/COLCON_IGNORE',
+            'tools/map_eval/setup.sh', 'tools/map_eval/run.sh', 'tools/map_eval/check_env.py',
+            'tools/map_eval/README.md',
         )
         for path in paths:
             with self.subTest(path=path):
@@ -78,6 +82,11 @@ class GitRulesTests(unittest.TestCase):
             '.vscode/settings.json', 'src/FAST_LIO/.vscode/settings.json',
             'tests/__pycache__/test.pyc', '.pytest_cache/v/cache',
             'release.zip', 'release.zip.sha256', '.env', '.env.local', 'secrets/key',
+            '.local_tools/uv/uv', '.local_tools/python/cpython/bin/python3.12',
+            '.local_tools/cache/wheels/pkg.whl', '.venv/bin/python',
+            'tools/map_eval/.venv/lib/python3.12/site-packages/numpy/__init__.py',
+            'tools/map_eval/venv/bin/python', 'tools/map_eval/.uv-cache/pkg.whl',
+            'tools/map_eval/results/report.json',
         )
         for path in paths:
             with self.subTest(path=path):

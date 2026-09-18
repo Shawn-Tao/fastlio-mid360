@@ -17,7 +17,7 @@ def check_archive(path):
         if len(names) != len(infos):
             raise ValueError('Duplicate archive entries')
         excluded = {'build', 'install', 'log', 'bags', 'records', 'Record_Path', 'reference', 'maps', 'secrets',
-                    '.git', '.agents', '.codex', '__pycache__'}
+                    '.git', '.agents', '.codex', '__pycache__', '.local_tools'}
         for item in infos:
             parts = PurePosixPath(item.filename).parts
             if item.filename.startswith('/') or '..' in parts:
@@ -28,7 +28,9 @@ def check_archive(path):
                 raise ValueError(f'Unexpected deployment artifact: {item.filename}')
             if len(parts) > 2 and parts[1:3] == ('scripts', 'backup'):
                 raise ValueError(f'Archived scripts must not ship: {item.filename}')
-            if any(p in {'.git', '.agents', '.codex', '__pycache__'} for p in parts):
+            if len(parts) > 3 and parts[1:4] == ('tools', 'map_eval', 'results'):
+                raise ValueError(f'Local evaluation reports must not ship: {item.filename}')
+            if any(p in {'.git', '.agents', '.codex', '__pycache__', '.venv', 'venv', '.uv-cache'} for p in parts):
                 raise ValueError(f'Unexpected metadata/cache: {item.filename}')
             local_suffixes = ('.local.json', '.local.yaml', '.local.yml', '.local.xml',
                               '.local.sh', '.local.bash', '.local.zsh')

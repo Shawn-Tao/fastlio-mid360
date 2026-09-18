@@ -31,7 +31,8 @@ bash scripts/test.sh
 bash scripts/check_network.sh config/local/MID360.jetson.local.json
 bash scripts/run.sh mapping \
   lidar_config:=config/local/MID360.jetson.local.json \
-  map_name:=lab_a publish_map:=true
+  publish_map:=true \
+  map_name:=lab_a 
 ```
 
 **AGX：显示建图**（已有 Humble、RViz2 和可用桌面）：
@@ -48,7 +49,8 @@ PCD 和配套 `.pcd.json`。不要同时启动建图、定位两套计算端。
 ```bash
 bash scripts/run.sh localization \
   lidar_config:=config/local/MID360.jetson.local.json \
-  map_path:=pcd_map/实际地图.pcd search_radius:=3.0
+  search_radius:=3.0 \
+  map_path:=pcd_map/实际地图.pcd 
 ```
 
 **AGX：显示定位**（先退出建图查看器）：

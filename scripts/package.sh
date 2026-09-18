@@ -21,6 +21,9 @@ zip -q -r -y "$archive_path" "$workspace_name" -x \
   "$workspace_name/records/*" "$workspace_name/Record_Path/*" \
   "$workspace_name/scripts/backup" "$workspace_name/scripts/backup/*" \
   "$workspace_name/config/local/*" "$workspace_name/secrets/*" \
+  "$workspace_name/.local_tools" "$workspace_name/.local_tools/*" \
+  "$workspace_name/tools/map_eval/results" "$workspace_name/tools/map_eval/results/*" \
+  '*/.venv' '*/.venv/*' '*/venv' '*/venv/*' '*/.uv-cache' '*/.uv-cache/*' \
   '*/.git' '*/.git/*' '*/.agents/*' '*/.codex/*' '*/__pycache__/*' '*.pyc' '*.pyo' \
   '*/.vscode/*' '*/.idea/*' '*/.pytest_cache/*' '*/.mypy_cache/*' '*/.ruff_cache/*' \
   '*.local.json' '*.local.yaml' '*.local.yml' '*.local.xml' '*.local.sh' '*.local.bash' '*.local.zsh' \
