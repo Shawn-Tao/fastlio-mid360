@@ -103,6 +103,13 @@ bash scripts/init_local_config.sh --name jetson \
 直接转发该参数。查看 /tracking/status 的 static_map 统计；站定行人仍可能进入地图，
 离开后须慢速重访旧位置。门限与现场验收见 [静态存图过滤](../doc/STATIC_MAP_FILTER.md)。
 
+独立对照用 map_confirm:=true/false、ray_clear:=true/false；入图次数/跨度/间隔用
+confirm_hits/confirm_seconds/confirm_interval，清理对应 clear_hits/clear_seconds/clear_interval。
+行走许可用 clear_max_speed/clear_max_angular_speed/clear_max_position_std/clear_max_frame_gap。
+当前默认已放宽：入图 3 次/0.6 s、清理 3 次/0.4 s，独立间隔均 0.1 s，
+清理运动上限 1.0 m/s、1.0 rad/s；`run.sh --help` 显示默认值。
+旧本地 YAML/显式 CLI 仍优先，不自动改写；上述启动项只适用于建图及建图 replay，参数变化重启即可。
+
 ## 环境选择和高级用法
 
 `env.sh` 加载 Humble、可选的本工作区 install overlay 及与启动脚本相同的 DDS。

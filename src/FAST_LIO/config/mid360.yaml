@@ -102,15 +102,18 @@
 
         # Archive/static PCD + mapping display only. Never filters the live ikd-Tree.
         static_map:
-            enabled: true
-            min_observations: 4
-            observation_interval: 0.2    # one support/miss per voxel per interval, not per point
-            confirmation_seconds: 1.2    # additionally require this observation time span
+            enabled: true               # master switch; static_filter:=false overrides BOTH stages
+            confirmation_enabled: true  # map_confirm:=true/false; false admits new voxels immediately
+            clearing_enabled: true      # ray_clear:=true/false; false never removes by free rays
+            min_observations: 3         # relaxed walking profile; strict comparison: 4
+            observation_interval: 0.1    # admission only; 0 allows every distinct frame, never per point
+            confirmation_seconds: 0.6    # additionally require this observation time span
             candidate_ttl: 5.0           # unconfirmed only; historical confirmed map NEVER ages out
             max_candidates: 250000
             max_frame_points: 100000
-            clear_observations: 6
-            clear_seconds: 1.0
+            clear_observations: 3
+            clear_seconds: 0.4
+            clear_observation_interval: 0.1 # independent miss interval; -1 inherits admission interval
             clear_vote_ttl: 3.0          # reset negative votes after a visibility gap
             clear_max_range: 15.0
             endpoint_margin: 0.5
@@ -118,8 +121,9 @@
             max_rays: 256
             max_ray_steps: 600
             max_clear_position_std: 0.10 # KF sanity, NOT a certified uncertainty bound
-            max_clear_speed: 0.5         # m/s, scan-end origin approximation
-            max_clear_angular_speed: 0.3 # rad/s
+            max_clear_speed: 1.0         # m/s, scan-end origin approximation; strict comparison: 0.5
+            max_clear_angular_speed: 1.0 # rad/s; strict comparison: 0.3
+            max_clear_frame_gap: 0.5     # seconds between accepted archive frames
 
         tracking:
             min_points: 20

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Host contracts and CSV recovery; not a ROS node execution test."""
+import ast
 import importlib.util
 from pathlib import Path
+import re
 import tempfile
 import unittest
 import warnings
@@ -48,6 +50,9 @@ class RuntimeContracts(unittest.TestCase):
         self.assertIn('std::min(source->size(),archive_->frame_limit())', archive)
         self.assertIn('source->size()-count', archive)
         self.assertIn('Measures.imu', archive)
+        self.assertIn('clear_motion_limits_.reason(', archive)
+        self.assertIn('archive_->clearing_enabled()', archive)
+        self.assertIn(r'\"archive_clear_gate\"', source)
         live = source.split('void map_incremental()', 1)[1].split('void publish_frame_world', 1)[0]
         self.assertNotIn('archive_->', live)
         self.assertNotIn('static_map.', live)
@@ -55,14 +60,46 @@ class RuntimeContracts(unittest.TestCase):
         config = yaml.safe_load((ROOT / 'src/FAST_LIO/config/mid360.yaml').read_text())['/**']['ros__parameters']
         policy = config['static_map']
         self.assertTrue(policy['enabled'])
-        self.assertGreaterEqual(policy['min_observations'], 3)
-        self.assertGreater(policy['confirmation_seconds'], 1)
+        self.assertTrue(policy['confirmation_enabled'])
+        self.assertTrue(policy['clearing_enabled'])
+        expected = {'min_observations': 3, 'observation_interval': .1, 'confirmation_seconds': .6,
+                    'clear_observations': 3, 'clear_seconds': .4, 'clear_observation_interval': .1,
+                    'max_clear_speed': 1.0, 'max_clear_angular_speed': 1.0}
+        for name, value in expected.items():
+            self.assertEqual(policy[name], value, name)
+        self.assertEqual(policy['max_clear_position_std'], .1)
+        self.assertEqual(policy['max_clear_frame_gap'], 0.5)
+        self.assertEqual(policy['max_rays'], 256)
+        self.assertEqual(policy['max_ray_steps'], 600)
+        self.assertEqual(policy['endpoint_margin'], .5)
+        self.assertEqual(policy['ray_clearance'], .025)
         self.assertGreater(policy['candidate_ttl'], policy['confirmation_seconds'])
         self.assertLessEqual(policy['ray_clearance'], config['pcd_save']['voxel_size']/2)
         for name in policy:
             self.assertIn('"static_map.' + name + '"', source)
         localization = yaml.safe_load((ROOT / 'src/FAST_LIO/config/mid360_localization.yaml').read_text())['/**']['ros__parameters']
         self.assertFalse(localization['static_map']['enabled'])
+
+    def test_static_yaml_node_and_launch_fallback_defaults_agree(self):
+        # Read source contracts only; C++ policy defaults are tested natively.
+        tree = ast.parse((ROOT/'src/FAST_LIO/launch/mid360.launch.py').read_text())
+        registry = next(ast.literal_eval(item.value) for item in tree.body
+                        if isinstance(item, ast.Assign) and any(
+                            isinstance(target, ast.Name) and target.id == '_STATIC_NUMERIC'
+                            for target in item.targets))
+        policy = yaml.safe_load((ROOT/'src/FAST_LIO/config/mid360.yaml').read_text())['/**']['ros__parameters']['static_map']
+        source = SOURCE.read_text()
+        for alias, (key, _, default) in registry.items():
+            with self.subTest(alias=alias):
+                declaration = re.search(r'\{"' + re.escape(key) + r'",([^}]+)\}', source)
+                self.assertIsNotNone(declaration, key)
+                self.assertEqual(float(declaration.group(1)), default)
+                value = policy[key.split('.', 1)[1]]
+                if alias == 'clear_interval':
+                    self.assertEqual(default, -1.0)  # old YAML inherits its admission interval
+                    self.assertEqual(value, policy['observation_interval'])
+                else:
+                    self.assertEqual(value, default)
 
     def postprocess(self):
         path = ROOT / 'src/FAST_LIO/scripts/trajectory_csv.py'

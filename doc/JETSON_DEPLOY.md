@@ -168,6 +168,11 @@ bash scripts/run.sh mapping lidar_config:=config/local/MID360.jetson.local.json 
 应慢速回看旧位置；static_filter:=false 可关闭对照，参数与动态场景验收见
 [静态存图过滤](STATIC_MAP_FILTER.md)。查看 /tracking/status 的 static_map 统计和 last_update_ms，
 现场测整体 CPU/峰值内存；不宣称保证清理所有行人或 Orin NX 实时性能。
+两机制可单独开关 map_confirm:=true/false 与 ray_clear:=true/false；直接启动调参可用
+confirm_hits/confirm_seconds/confirm_interval、clear_hits/clear_seconds/clear_interval，
+运动门控用 clear_max_speed/clear_max_angular_speed。当前默认入图 3 次/0.6 s、清理 3 次/0.4 s，
+两者间隔 0.1 s，清理速度/转速上限 1.0 m/s、1.0 rad/s；普通建图无需显式传这些覆盖项。
+旧本地 YAML 不自动改写；放宽取舍、原严格组对照指令见上方文档。
 先修正本地旧 YAML 的窗口组合（当前默认 400 m/100 m），检查 /tracking/status。
 CSV 已持久化到工作区 records/，不是容器家目录。现场测试矩阵见
 [运行安全与验收](RUNTIME_SAFETY.md)，特别测保存时峰值内存、延迟和断流恢复。

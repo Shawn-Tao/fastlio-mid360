@@ -1148,14 +1148,17 @@ private:
         this->declare_parameter<double>("publish.reference_map_voxel_size",0.5);
         this->declare_parameter<int>("publish.reference_map_max_points",100000);
         this->declare_parameter<bool>("static_map.enabled",true);
+        this->declare_parameter<bool>("static_map.confirmation_enabled",true);
+        this->declare_parameter<bool>("static_map.clearing_enabled",true);
         for(const auto& p:std::vector<std::pair<std::string,double>>{
-            {"static_map.observation_interval",0.2},{"static_map.confirmation_seconds",1.2},
-            {"static_map.candidate_ttl",5.0},{"static_map.clear_seconds",1.0},{"static_map.clear_vote_ttl",3.0},
+            {"static_map.observation_interval",0.1},{"static_map.confirmation_seconds",0.6},
+            {"static_map.candidate_ttl",5.0},{"static_map.clear_seconds",0.4},{"static_map.clear_vote_ttl",3.0},
+            {"static_map.clear_observation_interval",-1.0},{"static_map.max_clear_frame_gap",0.5},
             {"static_map.clear_max_range",15.0},{"static_map.endpoint_margin",0.5},{"static_map.ray_clearance",0.025},
-            {"static_map.max_clear_position_std",0.10},{"static_map.max_clear_speed",0.5},{"static_map.max_clear_angular_speed",0.3}})
+            {"static_map.max_clear_position_std",0.10},{"static_map.max_clear_speed",1.0},{"static_map.max_clear_angular_speed",1.0}})
             this->declare_parameter<double>(p.first,p.second);
         for(const auto& p:std::vector<std::pair<std::string,int>>{
-            {"static_map.min_observations",4},{"static_map.clear_observations",6},{"static_map.max_candidates",250000},
+            {"static_map.min_observations",3},{"static_map.clear_observations",3},{"static_map.max_candidates",250000},
             {"static_map.max_frame_points",100000},{"static_map.max_rays",256},{"static_map.max_ray_steps",600}})
             this->declare_parameter<int>(p.first,p.second);
     }
@@ -1208,9 +1211,12 @@ private:
                 throw std::invalid_argument(std::string(key)+" must be a positive 32-bit count");
         // The reference PCD and live ikd-Tree are never modified by this policy.
         static_options.enabled=!localization_mode && this->get_parameter("static_map.enabled").as_bool();
+        static_options.confirmation_enabled=this->get_parameter("static_map.confirmation_enabled").as_bool();
+        static_options.clearing_enabled=this->get_parameter("static_map.clearing_enabled").as_bool();
         static_options.min_observations=integer("static_map.min_observations");
         static_options.clear_observations=integer("static_map.clear_observations");
         static_options.observation_interval=number("static_map.observation_interval");
+        static_options.clear_observation_interval=number("static_map.clear_observation_interval");
         static_options.confirmation_seconds=number("static_map.confirmation_seconds");
         static_options.candidate_ttl=number("static_map.candidate_ttl");
         static_options.clear_seconds=number("static_map.clear_seconds");
@@ -1222,13 +1228,18 @@ private:
         static_options.max_frame_points=integer("static_map.max_frame_points");
         static_options.max_rays=integer("static_map.max_rays");
         static_options.max_ray_steps=integer("static_map.max_ray_steps");
-        for(const char* key:{"static_map.max_clear_position_std","static_map.max_clear_speed","static_map.max_clear_angular_speed"})
-            if(!std::isfinite(number(key)) || number(key)<=0) throw std::invalid_argument(std::string(key)+" must be finite and positive");
+        clear_motion_limits_.max_position_std=number("static_map.max_clear_position_std");
+        clear_motion_limits_.max_speed=number("static_map.max_clear_speed");
+        clear_motion_limits_.max_angular_speed=number("static_map.max_clear_angular_speed");
+        clear_motion_limits_.max_frame_gap=number("static_map.max_clear_frame_gap");
+        clear_motion_limits_.validate();
         archive_=std::make_unique<fastlio_runtime::StaticVoxelMap<PointType>>(number("pcd_save.voxel_size"),integer("pcd_save.max_points"),static_options);
         if(!localization_mode) RCLCPP_INFO(this->get_logger(),
-            "Archive static filter %s (live ikd-Tree unchanged): %d observations over %.2f s; clear %d observations over %.2f s, <= %.1f m, <= %zu rays/frame.",
-            static_options.enabled?"enabled":"disabled",static_options.min_observations,static_options.confirmation_seconds,
-            static_options.clear_observations,static_options.clear_seconds,static_options.clear_max_range,static_options.max_rays);
+            "Archive filter %s (live ikd-Tree unchanged): confirmation=%s (%d hits, %.2f s span, %.2f s interval); clearing=%s (%d misses, %.2f s span, %.2f s interval); motion limits %.2f m/s, %.2f rad/s.",
+            static_options.enabled?"enabled":"disabled",archive_->confirmation_enabled()?"on":"off",
+            static_options.min_observations,static_options.confirmation_seconds,static_options.observation_interval,
+            archive_->clearing_enabled()?"on":"off",static_options.clear_observations,static_options.clear_seconds,
+            static_options.clear_interval(),clear_motion_limits_.max_speed,clear_motion_limits_.max_angular_speed);
         gravity_alignment_=this->get_parameter("localization.relocalization.gravity_alignment").as_bool();
         const auto gravity=this->get_parameter("localization.map_gravity").as_double_array();
         if(gravity.size()!=3) throw std::invalid_argument("localization.map_gravity needs 3 values");
@@ -1267,12 +1278,13 @@ private:
         }
         // Deskewed endpoints are referenced to scan end, not to each beam's
         // original firing origin. Only clear during slow, confident motion.
-        const bool allow_clear=elapsed>0 && elapsed<=0.5 && last_position_std_>=0 &&
-            last_position_std_<=this->get_parameter("static_map.max_clear_position_std").as_double() &&
-            state_point.vel.norm()<=this->get_parameter("static_map.max_clear_speed").as_double() &&
-            angular_speed<=this->get_parameter("static_map.max_clear_angular_speed").as_double() &&
-            peak_gyro<=this->get_parameter("static_map.max_clear_angular_speed").as_double();
+        if(!archive_->clearing_enabled()) last_archive_clear_gate_="disabled";
+        else if(source->size()>count) last_archive_clear_gate_="frame_points_truncated";
+        else if(last_archive_stamp_<0) last_archive_clear_gate_="no_previous_frame";
+        else last_archive_clear_gate_=clear_motion_limits_.reason(elapsed,last_position_std_,state_point.vel.norm(),angular_speed,peak_gyro);
+        const bool allow_clear=last_archive_clear_gate_=="allowed";
         if(!archive_->insert_frame(archive_world_frame_,{pos_lid.x(),pos_lid.y(),pos_lid.z()},lidar_end_time,allow_clear,source->size()-count)) {
+            last_archive_clear_gate_="invalid_archive_frame";
             RCLCPP_WARN_THROTTLE(this->get_logger(),*this->get_clock(),5000,
                 "Archive rejected frame (invalid origin or sensor timestamp); inspect static_map.invalid_frames in /tracking/status.");
             return;
@@ -1311,11 +1323,12 @@ private:
             "mapping.extrinsic_T","mapping.extrinsic_R","mapping.extrinsic_est_en","mapping.acc_cov","mapping.gyr_cov","mapping.b_acc_cov","mapping.b_gyr_cov",
             "common.time_sync_en","common.time_offset_lidar_to_imu","point_filter_num","feature_extract_enable","filter_size_surf","filter_size_map",
             "pcd_save.voxel_size","pcd_save.dense_input","cube_side_length","mapping.det_range",
-            "static_map.enabled","static_map.min_observations","static_map.observation_interval","static_map.confirmation_seconds",
+            "static_map.enabled","static_map.confirmation_enabled","static_map.clearing_enabled",
+            "static_map.min_observations","static_map.observation_interval","static_map.confirmation_seconds","static_map.clear_observation_interval",
             "static_map.candidate_ttl","static_map.clear_observations","static_map.clear_seconds","static_map.clear_vote_ttl",
             "static_map.clear_max_range","static_map.endpoint_margin","static_map.ray_clearance","static_map.max_candidates",
             "static_map.max_frame_points","static_map.max_rays","static_map.max_ray_steps","static_map.max_clear_position_std",
-            "static_map.max_clear_speed","static_map.max_clear_angular_speed"}) {
+            "static_map.max_clear_speed","static_map.max_clear_angular_speed","static_map.max_clear_frame_gap"}) {
             if(!first) out<<','; first=false; out<<fastlio_runtime::json_string(key)<<':'<<parameter_json(this->get_parameter(key));
         }
         out<<"}}"; return out.str();
@@ -1369,6 +1382,7 @@ private:
            <<",\"position_std\":"<<(std::isfinite(last_position_std_) && last_position_std_>=0?std::to_string(last_position_std_):"null")
            <<",\"mean_residual\":"<<(std::isfinite(res_mean_last)?std::to_string(res_mean_last):"null")
            <<",\"map_points\":"<<archive_->size()<<",\"map_complete\":"<<(archive_->complete()?"true":"false")
+           <<",\"archive_clear_gate\":"<<fastlio_runtime::json_string(last_archive_clear_gate_)
            <<",\"static_map\":"<<archive_->status_json()<<"}";
         std_msgs::msg::String message; message.data=out.str(); pubTrackingStatus_->publish(message);
     }
@@ -1959,6 +1973,8 @@ private:
     PointCloudXYZI archive_world_frame_;
     M3D last_archive_rotation_=M3D::Identity();
     double last_archive_stamp_=-1;
+    fastlio_runtime::ClearMotionLimits clear_motion_limits_;
+    std::string last_archive_clear_gate_="waiting_for_archive_frame";
     std::future<SaveResult> save_worker_;
     std::uint64_t map_revision_=0,saved_revision_=0,record_total_poses_=0;
     std::string last_tracking_reason_="waiting_for_sensor_data";

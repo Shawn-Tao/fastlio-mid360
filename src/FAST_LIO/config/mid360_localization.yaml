@@ -124,6 +124,8 @@
 
         static_map:
             enabled: false              # archive policy is mapping-only; reference PCD is read-only
+            confirmation_enabled: false
+            clearing_enabled: false
 
         tracking:
             min_points: 20

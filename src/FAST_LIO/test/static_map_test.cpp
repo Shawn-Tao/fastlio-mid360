@@ -28,6 +28,104 @@ int main(int argc,char** argv) {
         auto o=quick();
         const Points person{{3.05,0.05,0.05,7}},wall{{6.05,0.05,0.05,9}};
         {
+            // The default walking profile changes gates, not evidence safety.
+            fastlio_runtime::StaticMapOptions defaults;
+            require(defaults.min_observations==3 && defaults.confirmation_seconds==.6 && defaults.observation_interval==.1,
+                    "Relaxed admission defaults drifted");
+            require(defaults.clear_observations==3 && defaults.clear_seconds==.4 && defaults.clear_interval()==.1,
+                    "Relaxed cleanup defaults drifted");
+            Map map(.1,100);
+            map.insert_frame(Points(100,person[0]),origin,0);
+            map.insert_frame(person,origin,.3);
+            require(map.size()==0,"Default profile bypassed observation count/span");
+            map.insert_frame(person,origin,.65);
+            require(map.size()==1,"Default admission did not confirm in three observations");
+            map.insert_frame(wall,origin,.8); map.insert_frame(wall,origin,.95);
+            require(map.cleared()==0,"Default profile cleared before count/span");
+            map.insert_frame(wall,origin,1.25);
+            require(map.cleared()==1 && map.complete(),"Default cleanup did not clear in three observations");
+            // Original strict settings remain available through explicit values.
+            defaults.min_observations=4; defaults.observation_interval=.2; defaults.confirmation_seconds=1.2;
+            defaults.clear_observations=6; defaults.clear_seconds=1;
+            Map strict(.1,100,defaults);
+            for(double t:{0.0,.25,.5}) strict.insert_frame(person,origin,t);
+            require(strict.size()==0 && defaults.clear_interval()==.2,"Legacy strict settings/inherited interval not preserved");
+            strict.insert_frame(person,origin,1.25);
+            require(strict.size()==1,"Explicit strict admission settings no longer work");
+        }
+        {
+            // All four independent-stage combinations, with master switch on.
+            for(bool confirmation:{false,true}) for(bool clearing:{false,true}) {
+                auto stages=o; stages.confirmation_enabled=confirmation; stages.clearing_enabled=clearing;
+                Map map(.1,100,stages); map.insert_frame(person,origin,0);
+                require(map.size()==(confirmation?0u:1u) && map.candidates()==(confirmation?1u:0u),"Admission switch not independent");
+                map.insert_frame(person,origin,.25); map.insert_frame(person,origin,.5);
+                for(double t:{.75,1.0,1.25}) map.insert_frame(wall,origin,t);
+                require(map.cleared()==(clearing?1u:0u) && map.size()==(clearing?1u:2u),"Cleanup switch not independent");
+                require(map.confirmation_enabled()==confirmation && map.clearing_enabled()==clearing,"Effective stage flags wrong");
+                if(!clearing) require(map.status_json().find("\"last_rays\":0")!=std::string::npos,"Disabled cleanup cast rays");
+            }
+        }
+        {
+            auto immediate=o; immediate.min_observations=1; immediate.confirmation_seconds=0;
+            immediate.observation_interval=0; immediate.clearing_enabled=false;
+            Map map(.1,100,immediate); map.insert_frame(person,origin,0);
+            require(map.size()==1 && map.candidates()==0,"Explicit one-hit/zero-span admission not supported");
+            auto master=immediate; master.enabled=false; master.confirmation_enabled=master.clearing_enabled=true;
+            Map legacy(0,100,master); legacy.insert_frame(Points(4,person[0]),origin,0);
+            require(legacy.size()==4 && !legacy.confirmation_enabled() && !legacy.clearing_enabled(),"Master false failed to override stage flags");
+        }
+        {
+            auto separate=o; separate.observation_interval=.5; separate.clear_observation_interval=.1;
+            separate.clear_seconds=.2;
+            Map map(.1,100,separate);
+            for(double t:{0.0,.5,1.0}) map.insert_frame(person,origin,t);
+            for(double t:{1.1,1.25,1.4}) map.insert_frame(wall,origin,t);
+            require(map.cleared()==1 && map.size()==0 && map.candidates()==1,"Clear interval leaked into admission interval (or vice versa)");
+            require(quick().clear_interval()==quick().observation_interval,"Legacy inherited miss interval broken");
+        }
+        {
+            auto every_frame=o; every_frame.min_observations=2; every_frame.confirmation_seconds=0;
+            every_frame.observation_interval=every_frame.clear_observation_interval=every_frame.clear_seconds=0;
+            Map map(.1,100,every_frame);
+            map.insert_frame(Points(1000,person[0]),origin,0);
+            require(map.size()==0,"Zero interval counted duplicate points as distinct scans");
+            map.insert_frame(person,origin,.1);
+            const Points multiple{{6.05,.05,.05,0},{6.15,.05,.05,0},{6.25,.05,.05,0}};
+            map.insert_frame(multiple,origin,.2);
+            require(map.cleared()==0,"Zero clear interval counted multiple rays from same frame");
+            map.insert_frame(multiple,origin,.21); require(map.cleared()==0,"Zero clear span ignored hit count");
+            map.insert_frame(multiple,origin,.22); require(map.cleared()==1,"Every-frame misses never cleared");
+        }
+        {
+            auto one=o; one.clear_observations=1; one.clear_seconds=0;
+            Map map(.1,100,one); seed(map,person); map.insert_frame(wall,origin,.75);
+            require(map.cleared()==1,"Explicit one-miss/zero-span cleanup not supported");
+            one.max_frame_points=1; Map truncated(.1,100,one); seed(truncated,person);
+            truncated.insert_frame(wall,origin,.75,true,1);
+            require(truncated.cleared()==0 && !truncated.complete(),"Loose settings bypassed truncated-frame protection");
+        }
+        {
+            fastlio_runtime::ClearMotionLimits limits; limits.validate();
+            require(limits.max_speed==1 && limits.max_angular_speed==1 && limits.max_position_std==.1 && limits.max_frame_gap==.5,
+                    "Relaxed motion defaults or unchanged safety gates drifted");
+            require(std::string(limits.reason(.1,.05,.8,.2,.7))=="allowed","Default walking motion not allowed");
+            limits.max_speed=.5; limits.max_angular_speed=.3;
+            require(std::string(limits.reason(.1,.05,.3,.2,.7))=="imu_peak_angular_speed","Walking peak gyro not gated");
+            require(std::string(limits.reason(.1,.05,.8,.2,.2))=="speed","Walking speed not gated");
+            limits.max_speed=1; limits.max_angular_speed=1;
+            require(std::string(limits.reason(.1,.05,.8,.2,.7))=="allowed","Relaxed walking limits not effective");
+            require(std::string(limits.reason(.8,.05,.8,.2,.7))=="frame_gap","Frame gap limit ignored");
+            limits.max_frame_gap=1;
+            require(std::string(limits.reason(.8,.05,.8,.2,.7))=="allowed","Relaxed frame gap limit not effective");
+            require(std::string(limits.reason(.1,.2,.8,.2,.7))=="position_std","Position uncertainty limit ignored");
+            limits.max_position_std=.3;
+            require(std::string(limits.reason(.1,.2,.8,.2,.7))=="allowed","Relaxed covariance limit not effective");
+            require(std::string(limits.reason(.1,.2,.8,1.1,.7))=="pose_angular_speed","Pose angular speed ignored");
+            require(std::string(limits.reason(.1,.2,.8,.2,std::numeric_limits<double>::infinity()))=="invalid_motion","Invalid gyro allowed");
+            rejects([]{ fastlio_runtime::ClearMotionLimits bad; bad.max_speed=0; bad.validate(); });
+        }
+        {
             Map map(.1,100,o); Points duplicates(10000,person[0]);
             map.insert_frame(duplicates,origin,0);
             require(map.size()==0 && map.candidates()==1,"One scan/duplicate points confirmed occupancy");
@@ -183,6 +281,11 @@ int main(int argc,char** argv) {
         rejects([&]{ auto bad=o; bad.candidate_ttl=.25; Map map(.1,100,bad); });
         rejects([&]{ auto bad=o; bad.clear_vote_ttl=.25; Map map(.1,100,bad); });
         rejects([&]{ auto bad=o; bad.endpoint_margin=100; Map map(.1,100,bad); });
+        rejects([&]{ auto bad=o; bad.min_observations=0; Map map(.1,100,bad); });
+        rejects([&]{ auto bad=o; bad.clear_observations=0; Map map(.1,100,bad); });
+        rejects([&]{ auto bad=o; bad.observation_interval=-.1; Map map(.1,100,bad); });
+        rejects([&]{ auto bad=o; bad.clear_observation_interval=-.5; Map map(.1,100,bad); });
+        rejects([&]{ auto bad=o; bad.clear_seconds=-.1; Map map(.1,100,bad); });
         rejects([&]{ auto bad=o; bad.confirmation_seconds=std::numeric_limits<double>::infinity(); Map map(.1,100,bad); });
         if(argc>1 && (std::string(argv[1])=="--benchmark" || std::string(argv[1])=="--benchmark-large")) {
             Map map(.1,2000000); Points frame; frame.reserve(20000);

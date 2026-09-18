@@ -91,6 +91,14 @@ class ToolingTests(unittest.TestCase):
             self.assertNotIn('--rviz', tail)
             self.assertNotIn('--no-rviz', tail)
 
+    def test_run_forwards_static_stage_switches_and_thresholds(self):
+        arguments = ('map_confirm:=false', 'ray_clear:=true', 'confirm_hits:=3',
+                     'clear_interval:=0.1', 'clear_max_angular_speed:=1.0')
+        result = self.run_script('scripts/run.sh', 'mapping', *arguments, FASTLIO_NATIVE='0')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args = json.loads(result.stdout.splitlines()[-1])
+        self.assertEqual(tuple(args[-len(arguments):]), arguments)
+
     def test_ambiguous_missing_and_explicit_container(self):
         for changes in ({'FAKE_DOCKER_IDS': ''},
                         {'FAKE_DOCKER_IDS': 'first\nsecond'},

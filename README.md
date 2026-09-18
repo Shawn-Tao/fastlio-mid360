@@ -298,12 +298,21 @@ pcd_map/20260916_160000_123456_lab_a.pcd
 
 `record_bag` 默认 false，主动开启后保存到 `bags/<mode>_<时间戳>/`；可用 `bag_dir` 和 `extra_bag_topics` 配置。每会话一份地图，不使用 `pcd_save.interval` 分片。存图默认从去畸变扫描输入、0.1 m 全局体素去重，独立于实时匹配 0.5 m 滤波；默认最多 2000000 点，容量不足会告警并标记地图不完整，不静默删除旧区域。配置在本地 YAML 调整。
 
-默认增加**存图层时序静态过滤**：新体素至少 4 次独立观察、跨度 1.2 s 才确认；
-已有点仅在低速、可靠位姿下，被有效回波前的自由射线至少 6 次穿过、跨度 1 s 才清除。
+默认增加**存图层时序静态过滤**，现已采用放宽组：新体素至少 3 次独立观察、跨度 0.6 s 才确认；
+已有点仅在运动/可靠位姿门限内，被有效回波前的自由射线至少 3 次穿过、跨度 0.4 s 才清除。
 遮挡或没看到不删图，历史区域不按年龄删除。只改变存图缓存和建图显示，实时 ikd-Tree/
 EKF 不变，定位参考 PCD 只读。`static_filter:=false` 关闭作对照；本地 YAML 可调整
 `static_map` 段。站定的人仍可能入图，离开后需要重访、真正照到旧位置，不能保证全部剔除。
 参数、状态、性能边界与现场验收见 [静态存图过滤](doc/STATIC_MAP_FILTER.md)。
+
+两阶段可独立测试：`map_confirm:=true/false` 控制入图确认，`ray_clear:=true/false`
+控制射线清理，均支持 auto 遵循 YAML。常用门限可直接传
+`confirm_hits:=3 confirm_seconds:=0.6 confirm_interval:=0.1` 与
+`clear_hits:=3 clear_seconds:=0.4 clear_interval:=0.1`；行走门控可传
+`clear_max_speed:=1.0 clear_max_angular_speed:=1.0`（m/s、rad/s）。这些现在就是默认值，
+普通建图无需重复传参；旧本地 YAML/显式 CLI 仍优先，不会自动改写。
+新默认可能增加行人入图/误删，仍需现场验收；更新源码先重新 build，之后调参只需重启。
+完整映射和原严格组对照指令见上方文档。
 
 无显示需求时全图发布默认关闭；建图 `--rviz` 自动开启有限显示副本，远程 PC 可传 `publish_map:=true`。默认有订阅者才每 5 s 发布，显示最多 100000 点，定位 reference_map 也用单独显示副本，不改变匹配地图。
 

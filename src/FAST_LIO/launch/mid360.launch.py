@@ -22,6 +22,104 @@ _MAP_REQUIRED = ('mapping.extrinsic_T', 'mapping.extrinsic_R', 'preprocess.lidar
                  'filter_size_surf', 'filter_size_map', 'mapping.acc_cov', 'mapping.gyr_cov',
                  'mapping.b_acc_cov', 'mapping.b_gyr_cov')
 
+# Empty launch values preserve YAML/declared defaults. Bounds and cross-checks
+# run before creating actions, not after a real driver has already started.
+_STATIC_NUMERIC = {
+    'confirm_hits': ('static_map.min_observations', 'count', 3),
+    'confirm_seconds': ('static_map.confirmation_seconds', 'span', 0.6),
+    'confirm_interval': ('static_map.observation_interval', 'span', 0.1),
+    'candidate_ttl': ('static_map.candidate_ttl', 'positive', 5.0),
+    'clear_hits': ('static_map.clear_observations', 'count', 3),
+    'clear_seconds': ('static_map.clear_seconds', 'span', 0.4),
+    'clear_interval': ('static_map.clear_observation_interval', 'interval', -1.0),
+    'clear_vote_ttl': ('static_map.clear_vote_ttl', 'positive', 3.0),
+    'clear_range': ('static_map.clear_max_range', 'positive', 15.0),
+    'clear_endpoint_margin': ('static_map.endpoint_margin', 'positive', 0.5),
+    'clear_ray_clearance': ('static_map.ray_clearance', 'positive', 0.025),
+    'clear_max_speed': ('static_map.max_clear_speed', 'positive', 1.0),
+    'clear_max_angular_speed': ('static_map.max_clear_angular_speed', 'positive', 1.0),
+    'clear_max_position_std': ('static_map.max_clear_position_std', 'positive', 0.10),
+    'clear_max_frame_gap': ('static_map.max_clear_frame_gap', 'positive', 0.5),
+    'clear_max_rays': ('static_map.max_rays', 'count', 256),
+    'clear_max_ray_steps': ('static_map.max_ray_steps', 'count', 600),
+    'map_max_candidates': ('static_map.max_candidates', 'count', 250000),
+    'map_max_frame_points': ('static_map.max_frame_points', 'count', 100000),
+}
+
+
+def _config_value(config, name, default):
+    if name in config:  # ROS also permits flattened/dotted parameter names
+        return config[name]
+    value = config
+    for part in name.split('.'):
+        if not isinstance(value, dict) or part not in value:
+            return default
+        value = value[part]
+    return value
+
+
+def _static_number(name, value, kind):
+    if kind == 'count':
+        valid = type(value) is int and 1 <= value <= 2147483647
+    else:
+        valid = type(value) in (int, float) and math.isfinite(value)
+        if valid:
+            valid = (value > 0 if kind == 'positive' else
+                     (value == -1 or value >= 0) if kind == 'interval' else value >= 0)
+    if not valid:
+        bound = {'count': 'integer in [1, 2147483647]', 'positive': 'finite and > 0',
+                 'span': 'finite and >= 0', 'interval': '-1 (inherit) or finite and >= 0'}[kind]
+        raise ValueError(f'{name} must be {bound}, got {value!r}')
+    return value if kind == 'count' else float(value)
+
+
+def _static_parameters(context, config, localization):
+    args = context.launch_configurations
+    switches = {'static_filter': 'static_map.enabled',
+                'map_confirm': 'static_map.confirmation_enabled',
+                'ray_clear': 'static_map.clearing_enabled'}
+    numeric = {name: args[name].strip() for name in _STATIC_NUMERIC if args[name].strip()}
+    if localization:
+        if numeric or any(args[name] != 'auto' for name in switches):
+            raise ValueError('static_filter/map_confirm/ray_clear and static thresholds are mapping-only; localization reference maps are read-only')
+        return {'static_map.enabled': False}
+    params, active = {}, {}
+    for name, key in switches.items():
+        active[key] = _config_value(config, key, True)
+        if args[name] != 'auto':
+            active[key] = params[key] = _boolean(context, name)
+        if type(active[key]) is not bool:
+            raise ValueError(f'{key} must be a YAML boolean')
+    for name, (key, kind, default) in _STATIC_NUMERIC.items():
+        value = _config_value(config, key, default)
+        if name in numeric:
+            try:
+                if kind == 'count' and not re.fullmatch(r'[+-]?\d+', numeric[name]):
+                    raise ValueError('not an integer')
+                value = int(numeric[name]) if kind == 'count' else float(numeric[name])
+            except (ValueError, OverflowError) as error:
+                raise ValueError(f'{name} is not a valid {kind} value: {numeric[name]!r}') from error
+            params[key] = _static_number(name, value, kind)
+        active[key] = _static_number(key, value, kind)
+    if not active['static_map.enabled']:
+        if numeric or any(args[name] != 'auto' and active[key] for name, key in switches.items() if name != 'static_filter'):
+            raise ValueError('static_filter master switch is false; use static_filter:=true before enabling/tuning individual stages')
+        return params
+    voxel = _config_value(config, 'pcd_save.voxel_size', 0.1)
+    cap = _config_value(config, 'pcd_save.max_points', 2000000)
+    if type(voxel) not in (int, float) or not math.isfinite(voxel) or voxel < 0.0001 or type(cap) is not int or cap <= 0:
+        raise ValueError('static_map requires positive bounded pcd_save.voxel_size/max_points; use static_filter:=false for raw/unbounded mode')
+    if active['static_map.confirmation_enabled'] and active['static_map.candidate_ttl'] <= active['static_map.confirmation_seconds']:
+        raise ValueError('candidate_ttl must exceed confirm_seconds when confirmation is enabled')
+    if active['static_map.clearing_enabled']:
+        if active['static_map.clear_vote_ttl'] <= active['static_map.clear_seconds']:
+            raise ValueError('clear_vote_ttl must exceed clear_seconds')
+        if active['static_map.endpoint_margin'] >= active['static_map.clear_max_range']:
+            raise ValueError('clear_endpoint_margin must be less than clear_range')
+        if active['static_map.ray_clearance'] > voxel / 2:
+            raise ValueError('clear_ray_clearance must be <= pcd_save.voxel_size/2')
+    return params
+
 
 def _compatible(a, b):
     if isinstance(a, bool) or isinstance(b, bool):
@@ -113,17 +211,13 @@ def _launch(context):
     localization = mode == 'localization' or config_params.get('localization', {}).get('mode', False)
     params = {'use_sim_time': _boolean(context, 'use_sim_time'),
               'localization.mode': localization}
+    params.update(_static_parameters(context, config_params, localization))
     if not localization:
-        if args['static_filter'] != 'auto':
-            params['static_map.enabled'] = _boolean(context, 'static_filter')
         side = config_params.get('cube_side_length', 400.0)
         detection = config_params.get('mapping', {}).get('det_range', 100.0)
         if not math.isfinite(side) or not math.isfinite(detection) or detection <= 0 or side <= 3 * detection:
             raise ValueError('cube_side_length must be > 3 * mapping.det_range; invalid stationary local-map window')
     if localization:
-        if args['static_filter'] != 'auto':
-            raise ValueError('static_filter is mapping-only; localization reference maps are read-only')
-        params['static_map.enabled'] = False
         if not args['map_path'].strip():
             raise ValueError('Localization requires an explicit map_path:=/path/to/scene.pcd launch argument; no default map is selected.')
         reference = Path(args['map_path']).expanduser().resolve()
@@ -230,6 +324,10 @@ def generate_launch_description():
         'rviz': ('false', 'Start RViz (requires a working display)'),
         'publish_map': ('auto', 'Mapping display: auto enables bounded map when RViz starts; true supports remote RViz; false disables'),
         'static_filter': ('auto', 'Mapping/archive-only temporal static filter; auto uses YAML (default enabled); false restores legacy voxel archive'),
+        'map_confirm': ('auto', 'Mapping-only admission confirmation stage: auto uses YAML, true/false independently enables/disables'),
+        'ray_clear': ('auto', 'Mapping-only free-ray cleanup stage: auto uses YAML, true/false independently enables/disables'),
+        **{name: ('', f'Mapping-only override {key} ({kind}); empty preserves YAML/default')
+           for name, (key, kind, _) in _STATIC_NUMERIC.items()},
         'rviz_cfg': ('', 'Optional RViz configuration path'),
         'use_sim_time': ('false', 'Set true when replaying a bag with --clock'),
         'record_bag': ('false', 'Record raw LiDAR, IMU and odometry; opt-in to avoid unexpected disk use'),

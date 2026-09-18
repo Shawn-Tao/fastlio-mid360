@@ -9,19 +9,49 @@
 namespace fastlio_runtime {
 struct StaticMapOptions {
     bool enabled=true;
-    int min_observations=4, clear_observations=6;
-    double observation_interval=0.2, confirmation_seconds=1.2, candidate_ttl=5.0;
-    double clear_seconds=1.0, clear_vote_ttl=3.0, clear_max_range=15.0, endpoint_margin=0.5, ray_clearance=0.025;
+    bool confirmation_enabled=true, clearing_enabled=true;
+    int min_observations=3, clear_observations=3;
+    double observation_interval=0.1, confirmation_seconds=0.6, candidate_ttl=5.0;
+    double clear_observation_interval=-1.0; // legacy YAML: inherit observation_interval
+    double clear_seconds=0.4, clear_vote_ttl=3.0, clear_max_range=15.0, endpoint_margin=0.5, ray_clearance=0.025;
     std::size_t max_candidates=250000, max_frame_points=100000, max_rays=256, max_ray_steps=600;
     void validate(double voxel,std::size_t map_limit) const {
-        for(double value:{observation_interval,confirmation_seconds,candidate_ttl,clear_seconds,clear_vote_ttl,
+        for(double value:{candidate_ttl,clear_vote_ttl,
                           clear_max_range,endpoint_margin,ray_clearance})
             if(!std::isfinite(value) || value<=0) throw std::invalid_argument("static_map timing/ray values must be finite and positive");
-        if(min_observations<2 || clear_observations<2 || !max_candidates || !max_frame_points || !max_rays || !max_ray_steps ||
-           candidate_ttl<=confirmation_seconds || clear_vote_ttl<=clear_seconds || endpoint_margin>=clear_max_range)
-            throw std::invalid_argument("Invalid static_map counts, candidate TTL or ray bounds");
-        if(enabled && (!std::isfinite(voxel) || voxel<1e-4 || !map_limit || ray_clearance>voxel*0.5))
-            throw std::invalid_argument("static_map requires positive bounded voxel map and ray_clearance <= voxel_size/2; disable static_filter for legacy raw/unbounded mode");
+        for(double value:{observation_interval,confirmation_seconds,clear_seconds})
+            if(!std::isfinite(value) || value<0) throw std::invalid_argument("static_map intervals/spans must be finite and >= 0");
+        if(!std::isfinite(clear_observation_interval) || (clear_observation_interval<0 && clear_observation_interval!=-1))
+            throw std::invalid_argument("static_map.clear_observation_interval must be -1 (inherit) or >= 0");
+        if(min_observations<1 || clear_observations<1 || !max_candidates || !max_frame_points || !max_rays || !max_ray_steps)
+            throw std::invalid_argument("static_map counts must be positive");
+        if(enabled && confirmation_enabled && candidate_ttl<=confirmation_seconds)
+            throw std::invalid_argument("static_map.candidate_ttl must exceed confirmation_seconds");
+        if(enabled && clearing_enabled && (clear_vote_ttl<=clear_seconds || endpoint_margin>=clear_max_range || ray_clearance>voxel*0.5))
+            throw std::invalid_argument("static_map clearing requires vote_ttl > clear_seconds, endpoint_margin < clear_max_range and ray_clearance <= voxel_size/2");
+        if(enabled && (!std::isfinite(voxel) || voxel<1e-4 || !map_limit))
+            throw std::invalid_argument("static_map requires positive bounded voxel map; disable static_filter for legacy raw/unbounded mode");
+    }
+    double clear_interval() const { return clear_observation_interval==-1?observation_interval:clear_observation_interval; }
+};
+
+// Separate from admission and directly testable without ROS. Relaxing these
+// limits does NOT improve scan-end ray-origin accuracy or change estimator health.
+struct ClearMotionLimits {
+    double max_position_std=0.10,max_speed=1.0,max_angular_speed=1.0,max_frame_gap=0.5;
+    void validate() const {
+        for(double v:{max_position_std,max_speed,max_angular_speed,max_frame_gap})
+            if(!std::isfinite(v) || v<=0) throw std::invalid_argument("static_map clearing motion limits must be finite and positive");
+    }
+    const char* reason(double gap,double position_std,double speed,double angular,double peak_gyro) const {
+        for(double v:{gap,position_std,speed,angular,peak_gyro})
+            if(!std::isfinite(v) || v<0) return "invalid_motion";
+        if(gap<=0 || gap>max_frame_gap) return "frame_gap";
+        if(position_std>max_position_std) return "position_std";
+        if(speed>max_speed) return "speed";
+        if(angular>max_angular_speed) return "pose_angular_speed";
+        if(peak_gyro>max_angular_speed) return "imu_peak_angular_speed";
+        return "allowed";
     }
 };
 
@@ -119,7 +149,8 @@ template<class Point> class StaticVoxelMap {
             // Stop at a nearer return, even if it was not selected for ray casting.
             if(distance>0 && observations_.count(cell)) break;
             auto found=occupied_.find(cell);
-            if(found!=occupied_.end() && stamp-found->second.last_miss>=options_.observation_interval) {
+            if(found!=occupied_.end() && stamp>found->second.last_miss &&
+               stamp-found->second.last_miss>=options_.clear_interval()) {
                 auto& item=found->second;
                 const Vector p{double(item.point.x)-origin[0],double(item.point.y)-origin[1],double(item.point.z)-origin[2]};
                 const double along=p[0]*direction[0]+p[1]*direction[1]+p[2]*direction[2];
@@ -147,6 +178,8 @@ public:
     StaticVoxelMap(const StaticVoxelMap&)=delete;
     StaticVoxelMap& operator=(const StaticVoxelMap&)=delete;
     std::size_t frame_limit() const { return options_.enabled?options_.max_frame_points:std::numeric_limits<std::size_t>::max(); }
+    bool confirmation_enabled() const { return options_.enabled && options_.confirmation_enabled; }
+    bool clearing_enabled() const { return options_.enabled && options_.clearing_enabled; }
 
     // omitted counts endpoints the caller skipped before coordinate conversion.
     // It is a truncation, NOT a free/no-return ray. Node uses frame_limit().
@@ -179,6 +212,10 @@ public:
                     representative(old->second.point,p,k);
                     old->second.misses=0; old->second.last_miss=-1; continue;
                 }
+                if(!options_.confirmation_enabled) {
+                    if(occupied_.size()>=limit_) { ++rejected_; continue; }
+                    occupied_.emplace(k,Occupied{p}); ++promoted_; continue;
+                }
                 auto found=candidates_.find(k);
                 if(found==candidates_.end()) {
                     if(candidates_.size()>=options_.max_candidates) { ++candidate_rejected_; continue; }
@@ -201,7 +238,7 @@ public:
             }
             // Discarded frame endpoints cannot act as occlusion guards. Such a
             // frame must NEVER contribute negative evidence.
-            if(allow_clear && !truncated) {
+            if(options_.clearing_enabled && allow_clear && !truncated) {
                 const std::size_t rays=std::min(options_.max_rays,ray_keys_.size());
                 for(std::size_t i=0;i<rays;++i) {
                     // Rotate a stratified subset instead of permanently casting
@@ -210,7 +247,7 @@ public:
                     clear_ray(observations_.at(ray_keys_[index]),origin,stamp); ++last_rays_;
                 }
                 ray_steps_+=last_steps_;
-            } else ++skipped_clear_;
+            } else if(options_.clearing_enabled) ++skipped_clear_;
         }
         last_ms_=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
         return true;
@@ -230,7 +267,11 @@ public:
     }
     std::string status_json() const {
         std::ostringstream out;
-        out<<"{\"policy\":\"archive_temporal_rays_v1\",\"enabled\":"<<(options_.enabled?"true":"false")
+        out<<"{\"policy\":\"archive_temporal_rays_v2\",\"enabled\":"<<(options_.enabled?"true":"false")
+           <<",\"confirmation_enabled\":"<<(confirmation_enabled()?"true":"false")
+           <<",\"clearing_enabled\":"<<(clearing_enabled()?"true":"false")
+           <<",\"confirmation_interval\":"<<options_.observation_interval
+           <<",\"clear_interval\":"<<options_.clear_interval()
            <<",\"confirmed\":"<<size()<<",\"candidates\":"<<candidates_.size()<<",\"promoted\":"<<promoted_
            <<",\"cleared\":"<<cleared_<<",\"expired_candidates\":"<<expired_
            <<",\"candidate_capacity_rejected\":"<<candidate_rejected_<<",\"frame_points_rejected\":"<<frame_rejected_

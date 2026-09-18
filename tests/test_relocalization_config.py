@@ -78,6 +78,86 @@ class RelocalizationConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'true or false'):
             self.actions(mode='mapping', static_filter='yes')
 
+    def test_static_independent_switches_and_typed_thresholds(self):
+        for mode in ('mapping', 'replay'):
+            for confirm in ('true', 'false'):
+                for clear in ('true', 'false'):
+                    params = self.actions(mode=mode, map_confirm=confirm, ray_clear=clear)[-1]['parameters'][1]
+                    self.assertEqual(params['static_map.confirmation_enabled'], confirm == 'true')
+                    self.assertEqual(params['static_map.clearing_enabled'], clear == 'true')
+            params = self.actions(mode=mode, confirm_hits='3', confirm_seconds='0.6', confirm_interval='0.1',
+                clear_hits='3', clear_seconds='0.4', clear_interval='0.15', clear_max_speed='1',
+                clear_max_angular_speed='1.2', clear_max_position_std='0.2', clear_max_frame_gap='1')[-1]['parameters'][1]
+            self.assertEqual(params['static_map.min_observations'], 3)
+            self.assertIs(type(params['static_map.min_observations']), int)
+            for key, value in {'confirmation_seconds': .6, 'observation_interval': .1,
+                'clear_observation_interval': .15, 'max_clear_speed': 1.0,
+                'max_clear_frame_gap': 1.0, 'max_clear_angular_speed': 1.2}.items():
+                self.assertEqual(params['static_map.' + key], value)
+                self.assertIs(type(params['static_map.' + key]), float)
+
+    def test_static_one_hit_and_zero_spans_are_explicitly_allowed(self):
+        params = self.actions(confirm_hits='1', confirm_seconds='0', confirm_interval='0',
+                              clear_hits='1', clear_seconds='0', clear_interval='0')[-1]['parameters'][1]
+        self.assertEqual(params['static_map.min_observations'], 1)
+        self.assertEqual(params['static_map.clear_observations'], 1)
+        self.assertEqual(params['static_map.clear_seconds'], 0.0)
+        params = self.actions(clear_interval='-1')[-1]['parameters'][1]
+        self.assertEqual(params['static_map.clear_observation_interval'], -1.0)
+
+    def test_static_invalid_thresholds_and_contradictions_fail_early(self):
+        cases = ({'confirm_hits': '0'}, {'clear_hits': '1.5'}, {'confirm_hits': '2147483648'},
+                 {'confirm_seconds': '-.1'}, {'clear_seconds': 'nan'}, {'clear_max_speed': '0'},
+                 {'clear_max_angular_speed': 'inf'}, {'clear_interval': '-.5'},
+                 {'confirm_seconds': '5'}, {'clear_seconds': '3'}, {'clear_ray_clearance': '.06'},
+                 {'clear_range': '.4'}, {'static_filter': 'false', 'map_confirm': 'true'},
+                 {'static_filter': 'false', 'clear_hits': '3'}, {'ray_clear': 'yes'})
+        for arguments in cases:
+            with self.subTest(arguments=arguments), self.assertRaises(ValueError):
+                self.actions(**arguments)
+        # Inactive-stage pair relationships don't prevent testing the other stage.
+        self.actions(map_confirm='false', confirm_seconds='10')
+        self.actions(ray_clear='false', clear_seconds='10', clear_ray_clearance='.06')
+
+    def test_static_overrides_rejected_in_localization_and_localization_replay(self):
+        for mode, config in (('localization', 'mid360_localization.yaml'), ('replay', 'mid360_localization.yaml')):
+            for arguments in ({'map_confirm': 'false'}, {'ray_clear': 'false'}, {'clear_hits': '3'}, {'confirm_seconds': '.6'}):
+                with self.subTest(mode=mode, arguments=arguments), self.assertRaisesRegex(ValueError, 'mapping-only'):
+                    self.actions(mode=mode, config_file=config, map_path=str(ROOT/'pcd_map/test.pcd'), **arguments)
+
+    def test_static_local_yaml_values_preserved_and_cli_overrides_only_selected(self):
+        config = yaml.safe_load((ROOT/'src/FAST_LIO/config/mid360.yaml').read_text())
+        policy = config['/**']['ros__parameters']['static_map']
+        policy.update(confirmation_enabled=False, clearing_enabled=True, min_observations=2,
+                      confirmation_seconds=.3, clear_observation_interval=.1, max_clear_speed=1.1)
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'mapping.local.yaml'; path.write_text(yaml.safe_dump(config))
+            params=self.actions(config_file=str(path))[-1]['parameters'][1]
+            self.assertFalse(any(key.startswith('static_map.') for key in params))
+            params=self.actions(config_file=str(path), map_confirm='true', clear_hits='4')[-1]['parameters'][1]
+            self.assertTrue(params['static_map.confirmation_enabled'])
+            self.assertEqual(params['static_map.clear_observations'], 4)
+            self.assertNotIn('static_map.max_clear_speed', params)
+            self.assertEqual(yaml.safe_load(path.read_text()), config)
+
+    def test_static_legacy_strict_local_yaml_is_not_silently_relaxed(self):
+        config = yaml.safe_load((ROOT/'src/FAST_LIO/config/mid360.yaml').read_text())
+        policy = config['/**']['ros__parameters']['static_map']
+        policy.update(min_observations=4, confirmation_seconds=1.2, observation_interval=.2,
+                      clear_observations=6, clear_seconds=1.0, max_clear_speed=.5, max_clear_angular_speed=.3)
+        for key in ('confirmation_enabled', 'clearing_enabled', 'clear_observation_interval', 'max_clear_frame_gap'):
+            policy.pop(key)
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'strict.local.yaml'; path.write_text(yaml.safe_dump(config))
+            for mode in ('mapping', 'replay'):
+                node=self.actions(mode=mode, config_file=str(path))[-1]
+                self.assertEqual(node['parameters'][0], str(path))
+                self.assertFalse(any(key.startswith('static_map.') for key in node['parameters'][1]))
+            params=self.actions(config_file=str(path), confirm_hits='3', clear_interval='0.1')[-1]['parameters'][1]
+            self.assertEqual(params['static_map.min_observations'], 3)
+            self.assertEqual(params['static_map.clear_observation_interval'], .1)
+            self.assertEqual(yaml.safe_load(path.read_text()), config)
+
     def test_radius_and_manual_override(self):
         actions = self.actions(mode='localization', map_path=str(ROOT / 'pcd_map/test.pcd'),
                                search_radius='2.5', relocalize='true')

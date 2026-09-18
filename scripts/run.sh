@@ -11,6 +11,11 @@ usage() {
     'The existing rviz:=true / rviz:=false launch arguments remain supported.' \
     'Mapping --rviz enables bounded map display; publish_map:=true supports remote RViz.' \
     'Mapping static filtering defaults on (archive only); static_filter:=false is the legacy comparison.' \
+    'Independent stages: map_confirm:=true/false and ray_clear:=true/false (auto follows YAML).' \
+    'Admission defaults: confirm_hits:=3 confirm_seconds:=0.6 confirm_interval:=0.1' \
+    'Cleanup defaults: clear_hits:=3 clear_seconds:=0.4 clear_interval:=0.1' \
+    'Walking gate defaults: clear_max_speed:=1.0 clear_max_angular_speed:=1.0 (m/s, rad/s; field validation required).' \
+    'More bounds/YAML names: doc/STATIC_MAP_FILTER.md. Restart after tuning; no rebuild needed.' \
     'Verified localization: map_metadata:=strict; CSV defaults to records/, override record_dir:=...' \
     'Compile separately: bash scripts/build.sh (no PCD required).' \
     'Mapping:      bash scripts/run.sh mapping map_name:=lab_a' \

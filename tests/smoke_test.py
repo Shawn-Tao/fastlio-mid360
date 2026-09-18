@@ -44,7 +44,8 @@ def check_runtime_parameter_guard(node):
     assert any(info.node_name == 'laser_mapping' and info.topic_type == 'tf2_msgs/msg/TFMessage'
                for info in tf_publishers), 'FAST-LIO TF publisher unavailable'
     tf_qos = 'qos_overrides./tf.publisher.durability'
-    names = [tf_qos, 'tracking.min_ratio', 'record.note', 'record.sample_every_n', 'static_map.enabled']
+    names = [tf_qos, 'tracking.min_ratio', 'record.note', 'record.sample_every_n', 'static_map.enabled',
+             'static_map.confirmation_enabled', 'static_map.clearing_enabled', 'static_map.clear_observation_interval']
     original = parameter_request(node, GetParameters, 'get_parameters',
                                  GetParameters.Request(names=names)).values
     assert len(original) == len(names), original
@@ -53,6 +54,8 @@ def check_runtime_parameter_guard(node):
     assert original[2].type == ParameterType.PARAMETER_STRING, original[2]
     assert original[3].type == ParameterType.PARAMETER_INTEGER, original[3]
     assert original[4].type == ParameterType.PARAMETER_BOOL, original[4]
+    assert all(value.type == ParameterType.PARAMETER_BOOL for value in original[5:7]), original
+    assert original[7].type == ParameterType.PARAMETER_DOUBLE, original[7]
     descriptors = parameter_request(node, DescribeParameters, 'describe_parameters',
                                     DescribeParameters.Request(names=[tf_qos])).descriptors
     assert len(descriptors) == 1 and descriptors[0].read_only, 'TF QoS must remain read-only'
@@ -68,12 +71,16 @@ def check_runtime_parameter_guard(node):
         Parameter(name=names[4], value=ParameterValue(
             type=ParameterType.PARAMETER_BOOL, bool_value=not original[4].bool_value)),
     ]
+    forbidden += [Parameter(name=names[i], value=ParameterValue(
+        type=ParameterType.PARAMETER_BOOL, bool_value=not original[i].bool_value)) for i in (5, 6)]
+    forbidden.append(Parameter(name=names[7], value=ParameterValue(
+        type=ParameterType.PARAMETER_DOUBLE, double_value=.05)))
     results = parameter_request(node, SetParameters, 'set_parameters',
                                 SetParameters.Request(parameters=forbidden)).results
-    assert len(results) == 4 and all(not result.successful for result in results), results
+    assert len(results) == len(forbidden) and all(not result.successful for result in results), results
     assert 'startup-only' in results[0].reason, results[0]
     assert 'positive integer' in results[2].reason, results[2]
-    assert 'startup-only' in results[3].reason, results[3]
+    assert all('startup-only' in result.reason for result in results[3:]), results
     unchanged = parameter_request(node, GetParameters, 'get_parameters',
                                   GetParameters.Request(names=names)).values
     assert list(unchanged) == list(original), 'Rejected writes changed parameters'
@@ -207,6 +214,8 @@ def check_mode(node, mode, lidar_config=None):
             check_runtime_parameter_guard(node)
             archive = json.loads(tracking[-1].data)['static_map']
             assert archive['enabled'] == (mode == 'mapping'), archive
+            assert archive['confirmation_enabled'] == archive['clearing_enabled'] == (mode == 'mapping'), archive
+            assert 'archive_clear_gate' in json.loads(tracking[-1].data), tracking[-1]
             assert archive['confirmed'] == 0 and archive['candidates'] == 0, archive
             if mode == 'mapping':
                 client = node.create_client(Trigger, '/map_save')
